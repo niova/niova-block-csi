@@ -49,6 +49,20 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 		return nil, status.Error(codes.InvalidArgument, "Volume name cannot be empty")
 	}
 
+	for _, cap := range req.GetVolumeCapabilities() {
+		if cap == nil || cap.GetAccessMode() == nil {
+			continue
+		}
+
+		switch cap.GetAccessMode().GetMode() {
+		case csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER:
+			return nil, status.Error(
+				codes.Unsupported,
+				"ReadWriteMany (MULTI_NODE_MULTI_WRITER) is not supported",
+			)
+		}
+	}
+
 	if req.GetCapacityRange() == nil {
 		return nil, status.Error(codes.InvalidArgument, "Capacity range cannot be empty")
 	}
