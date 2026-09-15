@@ -1,11 +1,13 @@
 package filesystem_test
 
 import (
-	"testing"
-
+	"context"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"testing"
+	"time"
 
 	"github.com/niova-block-csi/test/framework"
 )
@@ -29,7 +31,7 @@ var _ = Describe("Filesystem", func() {
 
 				By("creating a " + fsType + " PVC")
 				_, err := f.CreatePVC(pvcName, "5Gi",
-					corev1.PersistentVolumeModeFilesystem,
+					corev1.PersistentVolumeMode("Filesystem"),
 					corev1.ReadWriteOnce)
 				Expect(err).NotTo(HaveOccurred())
 				DeferCleanup(f.DeletePVC, pvcName)
@@ -38,12 +40,21 @@ var _ = Describe("Filesystem", func() {
 				By("mounting via a pod")
 				_, err = f.CreatePodWithFSPVC(podName, pvcName)
 				Expect(err).NotTo(HaveOccurred())
-				DeferCleanup(f.DeletePod, podName)
 				Expect(f.WaitForPodRunning(podName, framework.PodRunningTimeout)).To(Succeed())
 
+				// Capture the node before deleting the pod.
+				pod, err := f.KubeClient.CoreV1().
+					Pods(f.Namespace).
+					Get(context.Background(), podName, metav1.GetOptions{})
+				Expect(err).NotTo(HaveOccurred())
+
+				nodeName := pod.Spec.NodeName
 				By("writing data")
-				_, err = f.ExecInPod(podName, "test",
-					[]string{"sh", "-c", "dd if=/dev/urandom of=/data/fill bs=1m count=100"})
+				out, err := f.ExecInPod(podName, "test",
+					[]string{"sh", "-c",
+						"set -x; which dd; ls -ld /data; df -Th /data; touch /data/testfile; dd if=/dev/urandom of=/data/fill bs=1M count=100 2>&1",
+					})
+				framework.Logf("dd output:\n%s", out)
 				Expect(err).NotTo(HaveOccurred())
 
 				By("syncing and unmounting via pod delete")
@@ -57,13 +68,38 @@ var _ = Describe("Filesystem", func() {
 				volumeID, err := f.PVCVolumeID(pvcName)
 				Expect(err).NotTo(HaveOccurred())
 				privileged := true
-				fsckPodObj := buildFsckPod(fsckPod, f.Namespace, volumeID, fsType, &privileged)
-				_, err = f.KubeClient.CoreV1().Pods(f.Namespace).Create(
-					nil, fsckPodObj, nil) // simplified; real impl uses context + metav1
-				// In practice, run fsck through ExecInPod on a privileged pod that
-				// can access the raw block device via the by-uuid symlink.
-				_ = err
-				framework.Logf("fsck validation skipped (requires unmounted device); use node exec path")
+				fsckPodObj := buildFsckPod(fsckPod, f.Namespace, volumeID, nodeName, fsType, &privileged)
+
+				_, err = f.KubeClient.CoreV1().Pods(f.Namespace).Create(context.Background(), fsckPodObj, metav1.CreateOptions{})
+				Expect(err).NotTo(HaveOccurred())
+				DeferCleanup(f.DeletePod, fsckPod)
+				Expect(f.WaitForPodRunning(fsckPod, framework.PodRunningTimeout)).To(Succeed())
+				By("waiting before running fsck")
+				time.Sleep(30 * time.Second)
+				By("running a read-only filesystem check")
+
+				var cmd []string
+
+				if fsType == "ext4" {
+					cmd = []string{
+						"chroot",
+						"/host",
+						"/usr/sbin/fsck.ext4",
+						"-n",
+						"/dev/ublkb0",
+					}
+				} else {
+					cmd = []string{
+						"chroot",
+						"/host",
+						"/usr/sbin/xfs_repair",
+						"-n",
+						"/dev/ublkb0",
+					}
+				}
+				out, err = f.ExecInPod(fsckPod, "fsck", cmd)
+				framework.Logf("fsck output:\n%s", out)
+				Expect(err).NotTo(HaveOccurred())
 			})
 
 			It("reports correct filesystem type via stat", func() {
@@ -71,7 +107,7 @@ var _ = Describe("Filesystem", func() {
 				podName := "fs-type-" + fsType + "-pod"
 
 				_, err := f.CreatePVC(pvcName, "5Gi",
-					corev1.PersistentVolumeModeFilesystem,
+					corev1.PersistentVolumeMode("Filesystem"),
 					corev1.ReadWriteOnce)
 				Expect(err).NotTo(HaveOccurred())
 				DeferCleanup(f.DeletePVC, pvcName)
@@ -80,7 +116,8 @@ var _ = Describe("Filesystem", func() {
 				Expect(err).NotTo(HaveOccurred())
 				DeferCleanup(f.DeletePod, podName)
 				Expect(f.WaitForPodRunning(podName, framework.PodRunningTimeout)).To(Succeed())
-
+				By("waiting before running fsck")
+				time.Sleep(30 * time.Second)
 				By("checking filesystem type reported by stat -f")
 				out, err := f.ExecInPod(podName, "test",
 					[]string{"stat", "-f", "-c", "%T", "/data"})
@@ -98,7 +135,7 @@ var _ = Describe("Filesystem", func() {
 				podName := "fs-dd-" + fsType + "-pod"
 
 				_, err := f.CreatePVC(pvcName, "5Gi",
-					corev1.PersistentVolumeModeFilesystem,
+					corev1.PersistentVolumeMode("Filesystem"),
 					corev1.ReadWriteOnce)
 				Expect(err).NotTo(HaveOccurred())
 				DeferCleanup(f.DeletePVC, pvcName)
@@ -111,13 +148,14 @@ var _ = Describe("Filesystem", func() {
 				By("writing a known checksum file")
 				_, err = f.ExecInPod(podName, "test", []string{
 					"sh", "-c",
-					"echo 'niova-integrity-check' | tee /data/checkfile | sha256sum > /data/checkfile.sha256",
+					"echo 'niova-integrity-check' > /data/checkfile && sha256sum /data/checkfile > /data/checkfile.sha256",
 				})
 				Expect(err).NotTo(HaveOccurred())
 
 				By("verifying the checksum")
 				out, err := f.ExecInPod(podName, "test",
-					[]string{"sh", "-c", "cd /data && sha256sum -c checkfile.sha256"})
+					[]string{"sh", "-c", "cd /data && sha256sum -c checkfile.sha256 2>&1"})
+				framework.Logf("checksum output:\n%s", out)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(out).To(ContainSubstring("OK"))
 			})
@@ -125,8 +163,65 @@ var _ = Describe("Filesystem", func() {
 	}
 })
 
-func buildFsckPod(_ /* name */ string, _ /* ns */ string, _ /* volID */ string, _ /* fsType */ string, _ *bool) *corev1.Pod {
+func buildFsckPod(name, ns, volID, nodeName, fsType string, privileged *bool) *corev1.Pod {
 	// Placeholder — real implementation builds a privileged pod spec that
 	// mounts the raw block device via hostPath and runs fsck against it.
-	return nil
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: ns,
+		},
+		Spec: corev1.PodSpec{
+			NodeName:      nodeName,
+			RestartPolicy: corev1.RestartPolicyNever,
+			Volumes: []corev1.Volume{
+				{
+					Name: "host-dev",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/dev",
+						},
+					},
+				},
+				{
+					Name: "host-root",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/",
+						},
+					},
+				},
+			},
+			Containers: []corev1.Container{
+				{
+					Name:  "fsck",
+					Image: "ubuntu:22.04",
+					Command: []string{
+						"sh",
+						"-c",
+						` set -eux
+						echo "=== Host filesystem tools ==="
+						chroot /host /usr/sbin/fsck.ext4 -V
+						chroot /host /usr/sbin/xfs_repair -V
+						echo "=== Filesystem tools ready ==="
+						sleep 3600`,
+					},
+					SecurityContext: &corev1.SecurityContext{
+						Privileged: privileged,
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "host-dev",
+							MountPath: "/host-dev",
+						},
+						{
+							Name:      "host-root",
+							MountPath: "/host",
+							ReadOnly:  true,
+						},
+					},
+				},
+			},
+		},
+	}
 }

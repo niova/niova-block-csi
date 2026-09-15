@@ -10,8 +10,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/remotecommand"
 	"os"
 )
 
@@ -92,8 +92,8 @@ func (f *Framework) CreatePodWithFSPVC(name, pvcName string) (*corev1.Pod, error
 
 // WaitForPodRunning polls until the pod is Running or timeout.
 func (f *Framework) WaitForPodRunning(name string, timeout time.Duration) error {
-	return wait.PollUntilContextTimeout(
-		context.Background(), PollInterval, timeout, true,
+	return wait.PollImmediateWithContext(
+		context.Background(), PollInterval, timeout,
 		func(ctx context.Context) (bool, error) {
 			pod, err := f.KubeClient.CoreV1().Pods(f.Namespace).
 				Get(ctx, name, metav1.GetOptions{})
@@ -119,8 +119,8 @@ func (f *Framework) DeletePod(name string) error {
 
 // WaitForPodDeleted polls until the pod is gone or timeout.
 func (f *Framework) WaitForPodDeleted(name string, timeout time.Duration) error {
-	return wait.PollUntilContextTimeout(
-		context.Background(), PollInterval, timeout, true,
+	return wait.PollImmediateWithContext(
+		context.Background(), PollInterval, timeout,
 		func(ctx context.Context) (bool, error) {
 			_, err := f.KubeClient.CoreV1().Pods(f.Namespace).
 				Get(ctx, name, metav1.GetOptions{})

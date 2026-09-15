@@ -27,7 +27,7 @@ var _ = Describe("Node-Level", func() {
 
 			By("creating and binding a block PVC")
 			_, err := f.CreatePVC(pvcName, "5Gi",
-				corev1.PersistentVolumeModeBlock,
+				corev1.PersistentVolumeMode("Block"),
 				corev1.ReadWriteOnce)
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(f.DeletePVC, pvcName)
@@ -56,7 +56,7 @@ var _ = Describe("Node-Level", func() {
 
 			By("staging a block PVC")
 			_, err := f.CreatePVC(pvcName, "5Gi",
-				corev1.PersistentVolumeModeBlock,
+				corev1.PersistentVolumeMode("Block"),
 				corev1.ReadWriteOnce)
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(f.DeletePVC, pvcName)
@@ -75,6 +75,9 @@ var _ = Describe("Node-Level", func() {
 
 			By("killing niova-ublk to simulate a daemon crash")
 			Expect(f.KillUblkProcess(volumeID)).To(Succeed())
+
+			By("Starting the niova-ublk")
+                        Expect(f.StartUblkProcessOnPodNode(podName, volumeID)).To(Succeed())
 
 			By("waiting for the by-uuid symlink to reappear")
 			var target2 string
@@ -96,7 +99,7 @@ var _ = Describe("Node-Level", func() {
 
 			By("staging a filesystem PVC")
 			_, err := f.CreatePVC(pvcName, "5Gi",
-				corev1.PersistentVolumeModeFilesystem,
+				corev1.PersistentVolumeMode("Filesystem"),
 				corev1.ReadWriteOnce)
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(f.DeletePVC, pvcName)

@@ -22,8 +22,8 @@ const (
 	CSIDriverName       = "csi.niova.com"
 	CSIDaemonSetName    = "niova-csi-node"
 
-	PollInterval = 2 * time.Second
-	PVCBoundTimeout  = 2 * time.Minute
+	PollInterval      = 2 * time.Second
+	PVCBoundTimeout   = 2 * time.Minute
 	PodRunningTimeout = 3 * time.Minute
 	PodDeleteTimeout  = 2 * time.Minute
 )

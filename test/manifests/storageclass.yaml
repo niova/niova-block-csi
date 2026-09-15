@@ -3,6 +3,7 @@ kind: StorageClass
 metadata:
   name: niova-csi-sc
 provisioner: csi.niova.com
-volumeBindingMode: Immediate
 reclaimPolicy: Delete
-allowVolumeExpansion: true
+volumeBindingMode: Immediate
+parameters:
+  ublkrecovery: "true"

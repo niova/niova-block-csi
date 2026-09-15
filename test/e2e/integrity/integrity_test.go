@@ -1,12 +1,14 @@
 package integrity_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/niova-block-csi/test/framework"
 )
@@ -27,7 +29,7 @@ var _ = Describe("Data Integrity", func() {
 
 			By("creating and staging a block PVC")
 			_, err := f.CreatePVC(pvcName, "10Gi",
-				corev1.PersistentVolumeModeBlock,
+				corev1.PersistentVolumeMode("Block"),
 				corev1.ReadWriteOnce)
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(f.DeletePVC, pvcName)
@@ -47,7 +49,7 @@ var _ = Describe("Data Integrity", func() {
 
 			By("creating and staging a filesystem PVC")
 			_, err := f.CreatePVC(pvcName, "10Gi",
-				corev1.PersistentVolumeModeFilesystem,
+				corev1.PersistentVolumeMode("Filesystem"),
 				corev1.ReadWriteOnce)
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(f.DeletePVC, pvcName)
@@ -74,14 +76,14 @@ var _ = Describe("Data Integrity", func() {
 
 			By("staging a block PVC and running an initial write")
 			_, err := f.CreatePVC(pvcName, "10Gi",
-				corev1.PersistentVolumeModeBlock,
+				corev1.PersistentVolumeMode("Block"),
 				corev1.ReadWriteOnce)
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(f.DeletePVC, pvcName)
 			Expect(f.WaitForPVCBound(pvcName, framework.PVCBoundTimeout)).To(Succeed())
 			_, err = f.CreatePodWithBlockPVC(podName, pvcName)
 			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(f.DeletePod, podName)
+			//DeferCleanup(f.DeletePod, podName)
 			Expect(f.WaitForPodRunning(podName, framework.PodRunningTimeout)).To(Succeed())
 
 			By("writing a known pattern to the first 64m")
@@ -91,11 +93,19 @@ var _ = Describe("Data Integrity", func() {
 				"--direct=1", "--ioengine=libaio", "--iodepth=8",
 			})
 			Expect(err).NotTo(HaveOccurred())
+			pod, err := f.KubeClient.CoreV1().Pods(f.Namespace).
+				Get(context.Background(), podName, metav1.GetOptions{})
+			Expect(err).NotTo(HaveOccurred())
 
+			f.NodeName = pod.Spec.NodeName
+			GinkgoWriter.Printf("integrity pod is running on node %s\n", f.NodeName)
 			By("killing niova-ublk to simulate a crash")
 			volumeID, err := f.PVCVolumeID(pvcName)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(f.KillUblkProcess(volumeID)).To(Succeed())
+
+			By("Starting the niova-ublk")
+			Expect(f.StartUblkProcessOnPodNode(podName, volumeID)).To(Succeed())
 
 			By("waiting for the by-uuid symlink to reappear (daemon restarted)")
 			Eventually(func() error {

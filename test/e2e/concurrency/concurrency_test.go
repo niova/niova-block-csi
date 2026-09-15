@@ -1,6 +1,7 @@
 package concurrency_test
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/niova-block-csi/test/framework"
 )
@@ -27,22 +29,29 @@ var _ = Describe("Multi-Attach & Concurrency", func() {
 			pvcName := "concur-multiattach"
 			pod1 := "concur-multiattach-pod1"
 			pod2 := "concur-multiattach-pod2"
+			const node1 = "io07"
+			const node2 = "io08"
 
+			DeferCleanup(func() {
+				f.NodeName = ""
+			})
 			By("creating and binding a block PVC")
 			_, err := f.CreatePVC(pvcName, "5Gi",
-				corev1.PersistentVolumeModeBlock,
+				corev1.PersistentVolumeMode("Block"),
 				corev1.ReadWriteOnce)
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(f.DeletePVC, pvcName)
 			Expect(f.WaitForPVCBound(pvcName, framework.PVCBoundTimeout)).To(Succeed())
 
 			By("attaching to pod1")
+			f.NodeName = node1
 			_, err = f.CreatePodWithBlockPVC(pod1, pvcName)
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(f.DeletePod, pod1)
 			Expect(f.WaitForPodRunning(pod1, framework.PodRunningTimeout)).To(Succeed())
 
 			By("attempting to attach the same PVC to pod2")
+			f.NodeName = node2
 			p2Spec, err := f.CreatePodWithBlockPVC(pod2, pvcName)
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(f.DeletePod, pod2)
@@ -52,7 +61,7 @@ var _ = Describe("Multi-Attach & Concurrency", func() {
 			// Give the scheduler 30s — pod2 must NOT reach Running.
 			Consistently(func() corev1.PodPhase {
 				pod, err := f.KubeClient.CoreV1().Pods(f.Namespace).
-					Get(nil, pod2, nil)
+					Get(context.Background(), pod2, metav1.GetOptions{})
 				if err != nil {
 					return corev1.PodUnknown
 				}
@@ -76,7 +85,7 @@ var _ = Describe("Multi-Attach & Concurrency", func() {
 					pod := fmt.Sprintf("concur-rapid-pod-%d", i)
 
 					_, err := f.CreatePVC(name, "5Gi",
-						corev1.PersistentVolumeModeBlock,
+						corev1.PersistentVolumeMode("Block"),
 						corev1.ReadWriteOnce)
 					if err != nil {
 						errCh <- fmt.Errorf("worker %d CreatePVC: %v", i, err)
@@ -121,7 +130,7 @@ var _ = Describe("Multi-Attach & Concurrency", func() {
 			pvcName := "concur-sequential"
 
 			_, err := f.CreatePVC(pvcName, "5Gi",
-				corev1.PersistentVolumeModeFilesystem,
+				corev1.PersistentVolumeMode("Filesystem"),
 				corev1.ReadWriteOnce)
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(f.DeletePVC, pvcName)

@@ -19,14 +19,14 @@ type FIOJob struct {
 }
 
 type FIOStat struct {
-	IOPS      float64    `json:"iops"`
-	BW        float64    `json:"bw"`        // KiB/s
-	LatNs     FIOLatency `json:"lat_ns"`
+	IOPS  float64    `json:"iops"`
+	BW    float64    `json:"bw"` // KiB/s
+	LatNs FIOLatency `json:"lat_ns"`
 }
 
 type FIOLatency struct {
-	Mean   float64 `json:"mean"`
-	Stddev float64 `json:"stddev"`
+	Mean       float64            `json:"mean"`
+	Stddev     float64            `json:"stddev"`
 	Percentile map[string]float64 `json:"percentile"`
 }
 
@@ -57,29 +57,134 @@ func (f *Framework) RunFIOVerify(podName, target, size string) error {
 }
 
 // RunFIOBenchmark runs a fio benchmark and returns parsed results.
-func (f *Framework) RunFIOBenchmark(podName, target, rw, bs, size string, iodepth int) (*FIOResult, error) {
-	cmd := fioCmd(target, rw, size,
+func (f *Framework) RunFIOBenchmark(
+	podName, target, rw, bs, size string,
+	iodepth int,
+) (*FIOResult, error) {
+	cmd := fioCmd(
+		target,
+		rw,
+		size,
 		"--bs="+bs,
 		fmt.Sprintf("--iodepth=%d", iodepth),
 		"--output-format=json",
 	)
-	Logf("fio benchmark on %s: %s", podName, strings.Join(cmd, " "))
-	out, err := f.ExecInPod(podName, "test", cmd)
+
+	Logf(
+		"fio benchmark on %s: %s",
+		podName,
+		strings.Join(cmd, " "),
+	)
+
+	out, err := f.ExecInPod(
+		podName,
+		"test",
+		cmd,
+	)
+
 	if err != nil {
-		return nil, fmt.Errorf("fio benchmark failed: %v\noutput: %s", err, out)
+		return nil, fmt.Errorf(
+			"fio benchmark failed: %v\noutput: %s",
+			err,
+			out,
+		)
 	}
 
-	// fio may emit non-JSON lines before the JSON block; find the opening brace.
-	jsonStart := strings.Index(out, "{")
-	if jsonStart < 0 {
-		return nil, fmt.Errorf("no JSON in fio output: %s", out)
+	out = strings.TrimSpace(out)
+
+	if out == "" {
+		return nil, fmt.Errorf("fio returned empty output")
+	}
+	// Find the top-level fio JSON object. Because ExecInPod combines
+	// stdout/stderr, fio text may appear before or after the JSON.
+	//
+	// We identify the correct object by looking for one that successfully
+	// unmarshals into FIOResult and contains at least one job.
+	searchFrom := 0
+
+	for {
+		relativeStart := strings.Index(out[searchFrom:], "{")
+		if relativeStart < 0 {
+			break
+		}
+
+		jsonStart := searchFrom + relativeStart
+
+		depth := 0
+		inString := false
+		escaped := false
+		jsonEnd := -1
+
+		for i := jsonStart; i < len(out); i++ {
+			ch := out[i]
+
+			if inString {
+				if escaped {
+					escaped = false
+					continue
+				}
+
+				if ch == '\\' {
+					escaped = true
+					continue
+				}
+
+				if ch == '"' {
+					inString = false
+				}
+
+				continue
+			}
+
+			switch ch {
+			case '"':
+				inString = true
+
+			case '{':
+				depth++
+
+			case '}':
+				depth--
+
+				if depth == 0 {
+					jsonEnd = i + 1
+					break
+				}
+			}
+
+			if jsonEnd != -1 {
+				break
+			}
+		}
+
+		if jsonEnd == -1 {
+			break
+		}
+
+		candidate := out[jsonStart:jsonEnd]
+
+		var result FIOResult
+		if err := json.Unmarshal([]byte(candidate), &result); err == nil {
+			if len(result.Jobs) > 0 {
+				if result.Jobs[0].Error != 0 {
+					return nil, fmt.Errorf(
+						"fio job %q reported error %d",
+						result.Jobs[0].JobName,
+						result.Jobs[0].Error,
+					)
+				}
+
+				return &result, nil
+			}
+		}
+
+		searchFrom = jsonStart + 1
 	}
 
-	var result FIOResult
-	if err := json.Unmarshal([]byte(out[jsonStart:]), &result); err != nil {
-		return nil, fmt.Errorf("parsing fio JSON: %v\nraw: %s", err, out)
-	}
-	return &result, nil
+	return nil, fmt.Errorf(
+		"could not find valid top-level fio JSON with jobs\nraw output:\n%s",
+		out,
+	)
 }
 
 func fioCmd(target, rw, size string, extra ...string) []string {

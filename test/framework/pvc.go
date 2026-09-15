@@ -23,7 +23,7 @@ func (f *Framework) CreatePVC(name, size string, mode corev1.PersistentVolumeMod
 			StorageClassName: &sc,
 			AccessModes:      []corev1.PersistentVolumeAccessMode{accessMode},
 			VolumeMode:       &mode,
-			Resources: corev1.VolumeResourceRequirements{
+			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
 					corev1.ResourceStorage: resource.MustParse(size),
 				},
@@ -36,8 +36,8 @@ func (f *Framework) CreatePVC(name, size string, mode corev1.PersistentVolumeMod
 
 // WaitForPVCBound polls until the PVC reaches Bound phase or timeout.
 func (f *Framework) WaitForPVCBound(name string, timeout time.Duration) error {
-	return wait.PollUntilContextTimeout(
-		context.Background(), PollInterval, timeout, true,
+	return wait.PollImmediateWithContext(
+		context.Background(), PollInterval, timeout,
 		func(ctx context.Context) (bool, error) {
 			pvc, err := f.KubeClient.CoreV1().PersistentVolumeClaims(f.Namespace).
 				Get(ctx, name, metav1.GetOptions{})
@@ -58,8 +58,8 @@ func (f *Framework) DeletePVC(name string) error {
 
 // WaitForPVCDeleted polls until the PVC is gone or timeout.
 func (f *Framework) WaitForPVCDeleted(name string, timeout time.Duration) error {
-	return wait.PollUntilContextTimeout(
-		context.Background(), PollInterval, timeout, true,
+	return wait.PollImmediateWithContext(
+		context.Background(), PollInterval, timeout,
 		func(ctx context.Context) (bool, error) {
 			_, err := f.KubeClient.CoreV1().PersistentVolumeClaims(f.Namespace).
 				Get(ctx, name, metav1.GetOptions{})
@@ -92,5 +92,7 @@ func (f *Framework) PVCVolumeID(pvcName string) (string, error) {
 	if pv.Spec.CSI == nil {
 		return "", fmt.Errorf("PV %s has no CSI spec", pvName)
 	}
+	Logf("PVC %s -> PV %s -> CSI volume_id %s",
+		pvcName, pvName, pv.Spec.CSI.VolumeHandle)
 	return pv.Spec.CSI.VolumeHandle, nil
 }
