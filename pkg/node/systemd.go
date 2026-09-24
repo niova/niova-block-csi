@@ -64,6 +64,11 @@ func startUblkUnit(volumeID, binary string, args []string, env []string, dir str
 		{Name: "RestartUSec", Value: godbus.MakeVariant(uint64(2 * time.Second / time.Microsecond))},
 		{Name: "StartLimitIntervalUSec", Value: godbus.MakeVariant(uint64(5 * time.Minute / time.Microsecond))},
 		{Name: "StartLimitBurst", Value: godbus.MakeVariant(uint32(5))},
+		// Equivalent to `systemd-run --collect`: automatically unload this
+		// transient unit once it goes inactive or failed, so a unit that
+		// exhausts StartLimitBurst doesn't get stuck in `failed` state and
+		// block future StartTransientUnitContext calls for this volumeID.
+		{Name: "CollectMode", Value: godbus.MakeVariant("inactive-or-failed")},
 	}
 
 	resultChan := make(chan string, 1)
@@ -118,6 +123,8 @@ func runHostCommand(unitSuffix, binary string, args []string) error {
 		dbus.PropDescription(fmt.Sprintf("%s %v", binary, args)),
 		dbus.PropType("oneshot"),
 		dbus.PropExecStart(execArgs, true),
+		// Equivalent to `systemd-run --collect`.
+		{Name: "CollectMode", Value: godbus.MakeVariant("inactive-or-failed")},
 	}
 
 	resultChan := make(chan string, 1)
