@@ -57,7 +57,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 		switch cap.GetAccessMode().GetMode() {
 		case csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER:
 			return nil, status.Error(
-				codes.Unsupported,
+				codes.Internal,
 				"ReadWriteMany (MULTI_NODE_MULTI_WRITER) is not supported",
 			)
 		}
