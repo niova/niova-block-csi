@@ -34,6 +34,7 @@ TEST_TIMEOUT="${TEST_TIMEOUT:-45m}"
 
 BLOCK_SC="niova-block-storageclass.yaml"
 EXT4_SC="niova-ext4-fs-storageclass.yaml"
+XFS_SC="niova-xfs-fs-storageclass.yaml"
 
 # kubectl and the Go test framework both read KUBECONFIG
 if [[ -z "${KUBECONFIG:-}" && -r /etc/rancher/k3s/k3s.yaml ]]; then
@@ -50,7 +51,7 @@ done
 for d in "$DEPLOY_DIR" "$TEST_DIR"; do
     [[ -d "$d" ]] || { echo "ERROR: directory not found: $d" >&2; exit 1; }
 done
-for f in "$BLOCK_SC" "$EXT4_SC"; do
+for f in "$BLOCK_SC" "$EXT4_SC" "$XFS_SC"; do
     [[ -f "$DEPLOY_DIR/$f" ]] || { echo "ERROR: $DEPLOY_DIR/$f not found" >&2; exit 1; }
 done
 
@@ -107,6 +108,25 @@ echo "== switching StorageClass for test 3 =="
 kubectl get storageclass
 
 run_test 3 "Rapid pod scheduling" "Rapid pod scheduling"
+
+###############################################################################
+# test2 filesystem test
+###############################################################################
+echo "test1 concurrency test"
+echo "repo: $REPO_DIR"
+echo "KUBECONFIG: ${KUBECONFIG:-<default>}"
+
+run_test 4 "Filesystem ext4 validation" "Filesystem.*ext4 validation"
+
+echo "== switching StorageClass for test 3 =="
+(
+    cd "$DEPLOY_DIR"
+    kubectl delete -f "$EXT4_SC" --ignore-not-found
+    kubectl apply  -f "$XFS_SC"
+)
+kubectl get storageclass
+
+run_test 5 "Filesystem xfs validation" "Filesystem.*xfs validation"
 
 ###############################################################################
 # Summary
