@@ -77,6 +77,37 @@ run_test() {
     fi
 }
 
+run_integrity_test() {
+    local num=$1 title=$2 focus=$3
+    echo
+    echo "==================== integrity test $num: $title ===================="
+    
+    cd "$REPO_DIR"
+
+    # Temporarily disable -e to capture failure without exiting script
+    set +e
+    env \
+        NIOVA_BLOCK_UBLK_UNIFIED=0 \
+        NIOVA_LOG_LEVEL=0 \
+        NIOVA_GOSSIP_PATH=/etc/niova/gossipNodes \
+        NIOVA_BLOCK_MDSVC_GET_CHUNKS_LIMIT=256 \
+        NIOVA_GOSSIP_KEY=dummy \
+        NIOVA_BLOCK_CP_AUTH_USERNAME=admin \
+        NIOVA_BLOCK_CP_AUTH_SECRET=admin \
+        LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH:-}" \
+        go run github.com/onsi/ginkgo/v2/ginkgo -v \
+            --timeout="$TEST_TIMEOUT" \
+            --focus="$focus" \
+            ./test/e2e/integrity
+    
+    local status=$?
+    set -e
+
+    (( status == 0 )) && { echo "---- integrity test $num PASSED: $title"; PASSED+=("$num: $title"); return 0; }
+    echo "---- integrity test $num FAILED: $title" >&2
+    FAILED+=("$num: $title")
+}
+
 switch_storageclass() {
     local sc_file=$1
     echo
@@ -92,11 +123,7 @@ switch_storageclass() {
     kubectl get storageclass
 }
 
-###############################################################################
-# test1 concurrency test
-###############################################################################
 
-echo "test1 concurrency test"
 echo "repo: $REPO_DIR"
 echo "KUBECONFIG: ${KUBECONFIG:-<default>}"
 
@@ -110,27 +137,34 @@ cd "$TEST_DIR"
 
 run_test 1 "Invalid multi-attach (RWO)" "Invalid multi-attach"
 run_test 2 "Rapid create/delete"        "Rapid create/delete"
+run_test 3 "Lifecycle: Block volume mode" "PVC Lifecycle.*Block volume mode"
 
-# test 3 uses a filesystem PVC: switch from the block StorageClass to the ext4 one
+run_integrity_test 4 "fio checksum verification (Block PVC)" "writes with sha512 checksums and reads back without errors \(block PVC\)"
+run_integrity_test 5 "Backend restart during IO"             "Backend restart during IO
+"
+run_integrity_test 6 "Node: Device naming stability (Block)" "Node-Level.*Device naming stability"
+run_integrity_test 7 "Security: Raw block device permissions" "Security.*Raw block device permissions"
+run_integrity_test 8 "Security: Device Isolation" "Security.*pod cannot access a different pod's block device path"
+run_integrity_test 9 "Security: udev rule file check" "Security.*udev rule file is installed"
+
 echo
 echo "== switching StorageClass for test 3 =="
 switch_storageclass $EXT4_SC
 
-run_test 3 "Rapid pod scheduling" "Rapid pod scheduling"
+run_test 10 "Rapid pod scheduling" "Rapid pod scheduling"
+run_test 11 "Filesystem ext4 validation" "Filesystem.*ext4 validation"
+run_test 12 "Lifecycle: Filesystem volume mode (ext4)" "PVC Lifecycle.*Filesystem volume mode"
+run_integrity_test 13 "fio checksum verification (Filesystem PVC)" "writes with sha512 checksums and reads back without errors \(filesystem PVC\)"
+run_integrity_test 14 "Node: CSI plugin restart handling (Filesystem)" "Node-Level.*CSI plugin restart handling"
 
-###############################################################################
-# test2 filesystem test
-###############################################################################
-echo "test1 concurrency test"
-echo "repo: $REPO_DIR"
-echo "KUBECONFIG: ${KUBECONFIG:-<default>}"
-
-run_test 4 "Filesystem ext4 validation" "Filesystem.*ext4 validation"
-
+echo
 echo "== switching StorageClass for test 3 =="
 switch_storageclass $XFS_SC
 
-run_test 5 "Filesystem xfs validation" "Filesystem.*xfs validation"
+run_test 15 "Filesystem xfs validation" "Filesystem.*xfs validation"
+run_test 16 "Lifecycle: Filesystem volume mode (xfs)" "PVC Lifecycle.*Filesystem volume mode"
+run_test 17 "Lifecycle: Access mode validation" "PVC Lifecycle.*Access mode validation"
+run_test 18 "Lifecycle: Idempotency" "PVC Lifecycle.*Idempotency"
 
 ###############################################################################
 # Summary
@@ -142,7 +176,7 @@ for t in "${PASSED[@]}"; do echo "  PASSED  $t"; done
 for t in "${FAILED[@]}"; do echo "  FAILED  $t"; done
 
 if (( ${#FAILED[@]} > 0 )); then
-    echo "${#FAILED[@]} of 3 tests failed" >&2
+    echo "${#FAILED[@]} of 18 tests failed" >&2
     exit 1
 fi
-echo "all 3 tests passed"
+echo "all 18 tests passed"
