@@ -77,6 +77,21 @@ run_test() {
     fi
 }
 
+switch_storageclass() {
+    local sc_file=$1
+    echo
+    echo "== switching StorageClass to $sc_file =="
+    (
+        cd "$DEPLOY_DIR"
+        # Delete existing StorageClasses to bypass immutability restrictions
+        kubectl delete -f "$BLOCK_SC" --ignore-not-found
+        kubectl delete -f "$EXT4_SC"  --ignore-not-found
+        kubectl delete -f "$XFS_SC"   --ignore-not-found
+        kubectl apply  -f "$sc_file"
+    )
+    kubectl get storageclass
+}
+
 ###############################################################################
 # test1 concurrency test
 ###############################################################################
@@ -89,8 +104,7 @@ echo "KUBECONFIG: ${KUBECONFIG:-<default>}"
 cd "$DEPLOY_DIR"
 echo
 echo "== applying $BLOCK_SC =="
-kubectl apply -f "$BLOCK_SC"
-
+switch_storageclass $BLOCK_SC
 # 2) test dir: run the tests one by one
 cd "$TEST_DIR"
 
@@ -100,12 +114,7 @@ run_test 2 "Rapid create/delete"        "Rapid create/delete"
 # test 3 uses a filesystem PVC: switch from the block StorageClass to the ext4 one
 echo
 echo "== switching StorageClass for test 3 =="
-(
-    cd "$DEPLOY_DIR"
-    kubectl delete -f "$BLOCK_SC" --ignore-not-found
-    kubectl apply  -f "$EXT4_SC"
-)
-kubectl get storageclass
+switch_storageclass $EXT4_SC
 
 run_test 3 "Rapid pod scheduling" "Rapid pod scheduling"
 
@@ -119,12 +128,7 @@ echo "KUBECONFIG: ${KUBECONFIG:-<default>}"
 run_test 4 "Filesystem ext4 validation" "Filesystem.*ext4 validation"
 
 echo "== switching StorageClass for test 3 =="
-(
-    cd "$DEPLOY_DIR"
-    kubectl delete -f "$EXT4_SC" --ignore-not-found
-    kubectl apply  -f "$XFS_SC"
-)
-kubectl get storageclass
+switch_storageclass $XFS_SC
 
 run_test 5 "Filesystem xfs validation" "Filesystem.*xfs validation"
 
