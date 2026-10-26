@@ -29,8 +29,8 @@ var _ = Describe("Multi-Attach & Concurrency", func() {
 			pvcName := "concur-multiattach"
 			pod1 := "concur-multiattach-pod1"
 			pod2 := "concur-multiattach-pod2"
-			const node1 = "io07"
-			const node2 = "io08"
+			const node1 = "k3s-cp-01"
+			const node2 = "k3s-worker-01"
 
 			DeferCleanup(func() {
 				f.NodeName = ""
