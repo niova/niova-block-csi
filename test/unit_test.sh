@@ -150,7 +150,7 @@ run_integrity_test 9 "Security: udev rule file check" "Security.*udev rule file 
 echo
 echo "== switching StorageClass for test 3 =="
 switch_storageclass $EXT4_SC
-
+cd "$TEST_DIR"
 run_test 10 "Rapid pod scheduling" "Rapid pod scheduling"
 run_test 11 "Filesystem ext4 validation" "Filesystem.*ext4 validation"
 run_test 12 "Lifecycle: Filesystem volume mode (ext4)" "PVC Lifecycle.*Filesystem volume mode"
@@ -160,7 +160,7 @@ run_integrity_test 14 "Node: CSI plugin restart handling (Filesystem)" "Node-Lev
 echo
 echo "== switching StorageClass for test 3 =="
 switch_storageclass $XFS_SC
-
+cd "$TEST_DIR"
 run_test 15 "Filesystem xfs validation" "Filesystem.*xfs validation"
 run_test 16 "Lifecycle: Filesystem volume mode (xfs)" "PVC Lifecycle.*Filesystem volume mode"
 run_test 17 "Lifecycle: Access mode validation" "PVC Lifecycle.*Access mode validation"
