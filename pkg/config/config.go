@@ -98,7 +98,8 @@ func (cm *ConfigManager) UserLogin() error {
 	klog.Infof("Loging in the user with env-var %s  value %s is applied from environment", types.NiovaUserName, os.Getenv(types.NiovaUserName))
 	klog.Infof("Loging in the user with env-var %s value %s is applied from environment", types.NiovaUserSecret, os.Getenv(types.NiovaUserSecret))
 	klog.Infof("Loging in the user with env-var %s value %s is applied from environment", types.NiovaMdsvcChunkLimit, os.Getenv(types.NiovaMdsvcChunkLimit))
-	token, err := cm.Controller.UserClient.Login(os.Getenv(types.NiovaUserName), os.Getenv(types.NiovaUserSecret))
+	klog.Infof("Logging in the use wih env-var %s value %s is  applied from enviornment", types.NiovaTenantUuid, os.Getenv(types.NiovaTenantUuid))
+	token, err := cm.Controller.UserClient.LoginWithTenant(os.Getenv(types.NiovaUserName), os.Getenv(types.NiovaUserSecret), os.Getenv(types.NiovaTenantUuid))
 	if err != nil {
 		klog.Errorf("Failed to Login admin user", err)
 		return err
