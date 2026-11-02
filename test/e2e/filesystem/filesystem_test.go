@@ -21,7 +21,7 @@ var f = framework.New()
 
 var _ = Describe("Filesystem", func() {
 
-	for _, fsType := range []string{"ext4", "xfs"} {
+	for _, fsType := range []string{"ext4", "xfs", "btrfs"} {
 		fsType := fsType
 
 		Describe(fsType+" validation", func() {
@@ -86,7 +86,7 @@ var _ = Describe("Filesystem", func() {
 						"/host",
 						"/usr/sbin/fsck.ext4",
 						"-n",
-						"/dev/ublkb0",
+						fmt.Sprintf("/dev/disk/by-uuid/%s", volumeID),
 					}
 				} else {
 					cmd = []string{
@@ -94,7 +94,7 @@ var _ = Describe("Filesystem", func() {
 						"/host",
 						"/usr/sbin/xfs_repair",
 						"-n",
-						"/dev/ublkb0",
+						fmt.Sprintf("/dev/disk/by-uuid/%s", volumeID),
 					}
 				}
 				out, err = f.ExecInPod(fsckPod, "fsck", cmd)

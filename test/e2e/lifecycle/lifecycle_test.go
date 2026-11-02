@@ -56,7 +56,7 @@ var _ = Describe("PVC Lifecycle", func() {
 	})
 
 	Describe("Filesystem volume mode", func() {
-		for _, fsType := range []string{"ext4", "xfs"} {
+		for _, fsType := range []string{"ext4", "xfs", "btrfs"} {
 			fsType := fsType
 			It("creates, binds, mounts and deletes a "+fsType+" filesystem PVC", func() {
 				pvcName := "lifecycle-fs-" + fsType

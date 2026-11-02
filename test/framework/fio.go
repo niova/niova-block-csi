@@ -198,6 +198,7 @@ func fioCmd(target, rw, size string, extra ...string) []string {
 		"--ioengine=libaio",
 		"--iodepth=16",
 		"--bs=4k",
+		"--verify=crc32c",
 		"--group_reporting",
 	}
 	return append(cmd, extra...)

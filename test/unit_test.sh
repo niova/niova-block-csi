@@ -35,7 +35,7 @@ TEST_TIMEOUT="${TEST_TIMEOUT:-45m}"
 BLOCK_SC="niova-block-storageclass.yaml"
 EXT4_SC="niova-ext4-fs-storageclass.yaml"
 XFS_SC="niova-xfs-fs-storageclass.yaml"
-
+BTRFS_SC="niova-btrfs-fs-storageclass.yaml"
 # kubectl and the Go test framework both read KUBECONFIG
 if [[ -z "${KUBECONFIG:-}" && -r /etc/rancher/k3s/k3s.yaml ]]; then
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
@@ -166,6 +166,13 @@ run_test 16 "Lifecycle: Filesystem volume mode (xfs)" "PVC Lifecycle.*Filesystem
 run_test 17 "Lifecycle: Access mode validation" "PVC Lifecycle.*Access mode validation"
 run_test 18 "Lifecycle: Idempotency" "PVC Lifecycle.*Idempotency"
 
+echo
+echo "== switching StorageClass for test 3 =="
+switch_storageclass $BTRFS_SC
+cd "$TEST_DIR"
+run_test 19 "Filesystem xfs validation" "Filesystem.*btrfs validation"
+run_test 20 "Lifecycle: Filesystem volume mode (btrfs)" "PVC Lifecycle.*Filesystem volume mode"
+
 ###############################################################################
 # Summary
 ###############################################################################
@@ -176,7 +183,7 @@ for t in "${PASSED[@]}"; do echo "  PASSED  $t"; done
 for t in "${FAILED[@]}"; do echo "  FAILED  $t"; done
 
 if (( ${#FAILED[@]} > 0 )); then
-    echo "${#FAILED[@]} of 18 tests failed" >&2
+    echo "${#FAILED[@]} of 20 tests failed" >&2
     exit 1
 fi
-echo "all 18 tests passed"
+echo "all 20 tests passed"
