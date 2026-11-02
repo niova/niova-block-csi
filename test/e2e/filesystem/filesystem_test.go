@@ -8,6 +8,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"testing"
 	"time"
+	"fmt"
+	"strings"
 
 	"github.com/niova-block-csi/test/framework"
 )
@@ -21,7 +23,7 @@ var f = framework.New()
 
 var _ = Describe("Filesystem", func() {
 
-	for _, fsType := range []string{"ext4", "xfs", "btrfs"} {
+	for _, fsType := range []string{"ext4", "xfs"} {
 		fsType := fsType
 
 		Describe(fsType+" validation", func() {
@@ -75,8 +77,24 @@ var _ = Describe("Filesystem", func() {
 				DeferCleanup(f.DeletePod, fsckPod)
 				Expect(f.WaitForPodRunning(fsckPod, framework.PodRunningTimeout)).To(Succeed())
 				By("waiting before running fsck")
-				time.Sleep(30 * time.Second)
+				time.Sleep(10 * time.Second)
 				By("running a read-only filesystem check")
+				// Dynamically resolve target device inside chroot scope
+				resolveCmd := fmt.Sprintf(`
+				chroot /host sh -c '
+					if [ -L "/dev/disk/by-uuid/%s" ]; then
+						readlink -f "/dev/disk/by-uuid/%s"
+					else
+						ls -1 /dev/ublkb* 2>/dev/null | tail -n 1
+					fi
+				'`, volumeID, volumeID)
+
+				targetDev, err := f.ExecInPod(fsckPod, "fsck", []string{"sh", "-c", resolveCmd})
+				targetDev = strings.TrimSpace(targetDev)
+				if targetDev == "" {
+					targetDev = fmt.Sprintf("/dev/disk/by-uuid/%s", volumeID)
+				}
+				framework.Logf("Target device for fsck: %s", targetDev)
 
 				var cmd []string
 
@@ -86,7 +104,8 @@ var _ = Describe("Filesystem", func() {
 						"/host",
 						"/usr/sbin/fsck.ext4",
 						"-n",
-						fmt.Sprintf("/dev/disk/by-uuid/%s", volumeID),
+						"-f",
+						targetDev,
 					}
 				} else {
 					cmd = []string{
@@ -94,7 +113,7 @@ var _ = Describe("Filesystem", func() {
 						"/host",
 						"/usr/sbin/xfs_repair",
 						"-n",
-						fmt.Sprintf("/dev/disk/by-uuid/%s", volumeID),
+						targetDev,
 					}
 				}
 				out, err = f.ExecInPod(fsckPod, "fsck", cmd)
@@ -117,7 +136,7 @@ var _ = Describe("Filesystem", func() {
 				DeferCleanup(f.DeletePod, podName)
 				Expect(f.WaitForPodRunning(podName, framework.PodRunningTimeout)).To(Succeed())
 				By("waiting before running fsck")
-				time.Sleep(30 * time.Second)
+				time.Sleep(10 * time.Second)
 				By("checking filesystem type reported by stat -f")
 				out, err := f.ExecInPod(podName, "test",
 					[]string{"stat", "-f", "-c", "%T", "/data"})

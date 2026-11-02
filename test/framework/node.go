@@ -15,14 +15,14 @@ import (
 
 // CheckByUUIDSymlink verifies /dev/disk/by-uuid/<volumeID> exists on the node
 // by running a privileged pod. Returns the symlink target (e.g. ../../ublkb0).
-func (f *Framework) CheckByUUIDSymlink(volumeID string) (string, error) {
+func (f *Framework) CheckByUUIDSymlink(nodeName, volumeID string) (string, error) {
 	podName := "check-uuid-" + volumeID[:8]
 	privileged := true
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: f.Namespace},
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
-			NodeName:      f.NodeName,
+			NodeName:      nodeName,
 			Containers: []corev1.Container{
 				{
 					Name:            "checker",
@@ -55,9 +55,9 @@ func (f *Framework) CheckByUUIDSymlink(volumeID string) (string, error) {
 	if err := f.WaitForPodRunning(podName, 60*time.Second); err != nil {
 		return "", fmt.Errorf("checker pod not running: %v", err)
 	}
-
-	out, err := f.ExecInPod(podName, "checker",
-		[]string{"readlink", "-f", "/dev/disk/by-uuid/" + volumeID})
+	
+	cmd := fmt.Sprintf("readlink /dev/disk/by-uuid/%s || readlink -f /dev/disk/by-uuid/%s", volumeID, volumeID)
+	out, err := f.ExecInPod(podName, "checker", []string{"sh", "-c", cmd})
 	if err != nil {
 		return "", fmt.Errorf("by-uuid symlink not found for %s: %v", volumeID, err)
 	}
@@ -118,7 +118,7 @@ func (f *Framework) RestartCSIDaemonSetPod() error {
 // KillUblkProcess sends SIGKILL to the niova-ublk process for a given volumeID
 // on the node, simulating a daemon crash. It does this via a privileged pod
 // that can see the host PID namespace.
-func (f *Framework) KillUblkProcess(volumeID string) error {
+func (f *Framework) KillUblkProcess(nodeName, volumeID string) error {
 	podName := "kill-ublk-" + volumeID[:8]
 	privileged := true
 	hostPID := true
@@ -129,7 +129,7 @@ func (f *Framework) KillUblkProcess(volumeID string) error {
 		},
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
-			NodeName:      f.NodeName,
+			NodeName:      nodeName,
 			HostPID:       hostPID,
 
 			Volumes: []corev1.Volume{
@@ -195,6 +195,9 @@ func (f *Framework) KillUblkProcess(volumeID string) error {
 	    if [ -f "$proc/cmdline" ]; then
 	        cmd=$(tr '\000' ' ' < "$proc/cmdline")
 	        case "$cmd" in
+		    *sh*|*bash*|*grep*|*ps*)
+					continue
+					;;
 	            *niova-ublk*%s*)
 	                echo "${proc#/host/proc/}"
 	                exit 0
@@ -226,7 +229,7 @@ func (f *Framework) KillUblkProcess(volumeID string) error {
 	)
 
 	pid := strings.TrimSpace(out)
-	if err != nil || pid == "" {
+	if err != nil || pid == "" || strings.Contains(pid, "No matching"){
 		return fmt.Errorf(
 			"niova-ublk process for volume %s not found: %v; pgrep output: %q",
 			volumeID,
@@ -250,7 +253,7 @@ func (f *Framework) KillUblkProcess(volumeID string) error {
 			err,
 		)
 	}
-	time.Sleep(30 * time.Second)
+	time.Sleep(5 * time.Second)
 	verifyCmd := fmt.Sprintf(`
 	echo "=== checking original PID %s ==="
 

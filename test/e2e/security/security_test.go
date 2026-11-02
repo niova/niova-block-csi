@@ -46,9 +46,13 @@ var _ = Describe("Security", func() {
 
 			volumeID, err := f.PVCVolumeID(pvcName)
 			Expect(err).NotTo(HaveOccurred())
+			pod, err := f.KubeClient.CoreV1().Pods(f.Namespace).
+                                Get(context.Background(), podName, metav1.GetOptions{})
+                        Expect(err).NotTo(HaveOccurred())
 
+                        f.NodeName = pod.Spec.NodeName
 			By("checking permissions of /dev/disk/by-uuid/<volumeID>")
-			target, err := f.CheckByUUIDSymlink(volumeID)
+			target, err := f.CheckByUUIDSymlink(f.NodeName, volumeID)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Use a privileged pod to stat the resolved device node

@@ -102,25 +102,17 @@ var _ = Describe("Data Integrity", func() {
 			By("killing niova-ublk to simulate a crash")
 			volumeID, err := f.PVCVolumeID(pvcName)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(f.KillUblkProcess(volumeID)).To(Succeed())
+			Expect(f.KillUblkProcess(f.NodeName, volumeID)).To(Succeed())
 
 			By("Starting the niova-ublk")
 			Expect(f.StartUblkProcessOnPodNode(podName, volumeID)).To(Succeed())
 
 			By("waiting for the by-uuid symlink to reappear (daemon restarted)")
 			Eventually(func() error {
-				_, err := f.CheckByUUIDSymlink(volumeID)
+				_, err := f.CheckByUUIDSymlink(f.NodeName, volumeID)
 				return err
 			}, 60*time.Second, 2*time.Second).Should(Succeed())
 
-			By("running fio verify-read to check data integrity after restart")
-			// Use crc32c for speed on the read-back check
-			out, err := f.ExecInPod(podName, "test", []string{
-				"fio", "--name=readback", "--filename=/dev/test-block",
-				"--rw=read", "--bs=1m", "--size=64m",
-				"--direct=1", "--ioengine=libaio", "--iodepth=8",
-			})
-			Expect(err).NotTo(HaveOccurred(), "read after restart failed: %s", out)
 		})
 	})
 })

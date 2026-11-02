@@ -9,7 +9,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -64,6 +66,15 @@ func New() *Framework {
 		}
 		ctx := context.Background()
 		_ = f.KubeClient.CoreV1().Namespaces().Delete(ctx, f.Namespace, metav1.DeleteOptions{})
+
+		// Synchronously wait until the namespace is completely removed from the cluster
+		_ = wait.PollImmediate(PollInterval, 1*time.Minute, func() (bool, error) {
+			_, err := f.KubeClient.CoreV1().Namespaces().Get(ctx, f.Namespace, metav1.GetOptions{})
+			if apierrors.IsNotFound(err) {
+				return true, nil
+			}
+			return false, nil
+		})
 	})
 
 	return f
@@ -71,10 +82,24 @@ func New() *Framework {
 
 func (f *Framework) ensureNamespace() {
 	ctx := context.Background()
-	_, err := f.KubeClient.CoreV1().Namespaces().Get(ctx, f.Namespace, metav1.GetOptions{})
+	existingNs, err := f.KubeClient.CoreV1().Namespaces().Get(ctx, f.Namespace, metav1.GetOptions{})
 	if err == nil {
-		return
+		if existingNs.Status.Phase == corev1.NamespaceTerminating {
+			Logf("Namespace %s is terminating; waiting for completion...", f.Namespace)
+			err = wait.PollImmediate(PollInterval, 1*time.Minute, func() (bool, error) {
+				_, getErr := f.KubeClient.CoreV1().Namespaces().Get(ctx, f.Namespace, metav1.GetOptions{})
+				if apierrors.IsNotFound(getErr) {
+					return true, nil
+				}
+				return false, nil
+			})
+			Expect(err).NotTo(HaveOccurred(), "timed out waiting for old namespace %s to terminate", f.Namespace)
+		} else {
+			// Namespace exists and is active
+			return
+		}
 	}
+
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: f.Namespace}}
 	_, err = f.KubeClient.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
 	Expect(err).NotTo(HaveOccurred(), "creating test namespace %s", f.Namespace)

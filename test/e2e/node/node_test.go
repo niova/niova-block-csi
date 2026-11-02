@@ -1,12 +1,14 @@
 package node_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/niova-block-csi/test/framework"
 )
@@ -42,9 +44,14 @@ var _ = Describe("Node-Level", func() {
 			By("retrieving the CSI volume handle")
 			volumeID, err := f.PVCVolumeID(pvcName)
 			Expect(err).NotTo(HaveOccurred())
+			
+			pod, err := f.KubeClient.CoreV1().Pods(f.Namespace).
+                                Get(context.Background(), podName, metav1.GetOptions{})
+                        Expect(err).NotTo(HaveOccurred())
 
+                        f.NodeName = pod.Spec.NodeName
 			By("verifying /dev/disk/by-uuid/<volumeID> exists on the node")
-			target, err := f.CheckByUUIDSymlink(volumeID)
+			target, err := f.CheckByUUIDSymlink(f.NodeName, volumeID)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(target).To(ContainSubstring("ublkb"),
 				"by-uuid symlink should resolve to an ublkb device")
@@ -68,13 +75,17 @@ var _ = Describe("Node-Level", func() {
 
 			volumeID, err := f.PVCVolumeID(pvcName)
 			Expect(err).NotTo(HaveOccurred())
+			pod, err := f.KubeClient.CoreV1().Pods(f.Namespace).
+                                Get(context.Background(), podName, metav1.GetOptions{})
+                        Expect(err).NotTo(HaveOccurred())
 
+                        f.NodeName = pod.Spec.NodeName
 			By("recording the initial symlink target")
-			target1, err := f.CheckByUUIDSymlink(volumeID)
+			target1, err := f.CheckByUUIDSymlink(f.NodeName, volumeID)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("killing niova-ublk to simulate a daemon crash")
-			Expect(f.KillUblkProcess(volumeID)).To(Succeed())
+			Expect(f.KillUblkProcess(f.NodeName, volumeID)).To(Succeed())
 
 			By("Starting the niova-ublk")
                         Expect(f.StartUblkProcessOnPodNode(podName, volumeID)).To(Succeed())
@@ -82,7 +93,12 @@ var _ = Describe("Node-Level", func() {
 			By("waiting for the by-uuid symlink to reappear")
 			var target2 string
 			Eventually(func() error {
-				target2, err = f.CheckByUUIDSymlink(volumeID)
+				pod, err := f.KubeClient.CoreV1().Pods(f.Namespace).
+                	                Get(context.Background(), podName, metav1.GetOptions{})
+        	                Expect(err).NotTo(HaveOccurred())
+	
+	                        f.NodeName = pod.Spec.NodeName
+				target2, err = f.CheckByUUIDSymlink(f.NodeName, volumeID)
 				return err
 			}, 60*time.Second, 2*time.Second).Should(Succeed())
 
