@@ -50,6 +50,8 @@ spec:
               value: "admin"
             - name: NIOVA_BLOCK_MDSVC_GET_CHUNKS_LIMIT
               value: "256"
+            - name: NIOVA_TENANT_UUID
+              value: ""
           terminationMessagePath: /tmp/termination-log
           volumeMounts:
             - name: plugin-dir

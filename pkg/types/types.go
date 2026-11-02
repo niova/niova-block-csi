@@ -23,6 +23,7 @@ const (
 	NiovaGossipPath      = "NIOVA_GOSSIP_PATH"
 	NiovaUblkUnified     = "NIOVA_BLOCK_UBLK_UNIFIED"
 	NiovaMdsvcChunkLimit = "NIOVA_BLOCK_MDSVC_GET_CHUNKS_LIMIT"
+	NiovaTenantUuid      = "NIOVA_TENANT_UUID"
 
 	FailureDomain = "failuredomain"
 	EntityID      = "entityID"
