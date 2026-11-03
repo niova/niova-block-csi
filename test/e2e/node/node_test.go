@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 	"time"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -103,8 +104,8 @@ var _ = Describe("Node-Level", func() {
 			}, 60*time.Second, 2*time.Second).Should(Succeed())
 
 			By("verifying the symlink still points to an ublkb device (may have new N)")
-			Expect(target2).To(ContainSubstring("ublkb"))
 			framework.Logf("symlink: %s -> %s (was %s)", volumeID, target2, target1)
+			Expect(target2).To(ContainSubstring("ublkb"))
 		})
 	})
 
@@ -124,20 +125,26 @@ var _ = Describe("Node-Level", func() {
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(f.DeletePod, podName)
 			Expect(f.WaitForPodRunning(podName, framework.PodRunningTimeout)).To(Succeed())
-
-			By("writing a marker file before restart")
-			_, err = f.ExecInPod(podName, "test",
-				[]string{"sh", "-c", "echo before-restart > /data/marker"})
+			// Fetch the actual node running the workload pod
+			podObj, err := f.KubeClient.CoreV1().Pods(f.Namespace).Get(context.Background(), podName, metav1.GetOptions{})
 			Expect(err).NotTo(HaveOccurred())
+			workloadNode := podObj.Spec.NodeName
+			By("writing a marker file before restart")
+			out, err := f.ExecInPod(podName, "test",
+				[]string{"sh", "-c", "echo before-restart > /data/marker"})
+			framework.Logf("marker write output: %s", out)
+			Expect(err).NotTo(HaveOccurred())
+			// Use sync -f /data to avoid blocking on system-wide device queues
+			_, _ = f.ExecInPod(podName, "test", []string{"sync", "-f", "/data"})
 
 			By("restarting the CSI DaemonSet pod")
-			Expect(f.RestartCSIDaemonSetPod()).To(Succeed())
+			Expect(f.RestartCSIDaemonSetPod(workloadNode)).To(Succeed())
 
 			By("verifying the workload pod and data are unaffected")
-			out, err := f.ExecInPod(podName, "test",
+			out, err = f.ExecInPod(podName, "test",
 				[]string{"cat", "/data/marker"})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(out).To(ContainSubstring("before-restart"))
+			Expect(strings.TrimSpace(out)).To(ContainSubstring("before-restart"))
 		})
 	})
 

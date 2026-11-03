@@ -66,8 +66,9 @@ func (f *Framework) CheckByUUIDSymlink(nodeName, volumeID string) (string, error
 
 // RestartCSIDaemonSetPod deletes the CSI node pod on f.NodeName, triggering a
 // restart. It waits until the replacement pod is Running before returning.
-func (f *Framework) RestartCSIDaemonSetPod() error {
-	ctx := context.Background()
+func (f *Framework) RestartCSIDaemonSetPod(targetNode string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
 	pods, err := f.KubeClient.CoreV1().Pods(DefaultCSINamespace).List(ctx, metav1.ListOptions{
 		LabelSelector: "app=" + CSIDaemonSetName,
 	})
@@ -77,7 +78,7 @@ func (f *Framework) RestartCSIDaemonSetPod() error {
 
 	var target *corev1.Pod
 	for i := range pods.Items {
-		if f.NodeName == "" || pods.Items[i].Spec.NodeName == f.NodeName {
+		if pods.Items[i].Spec.NodeName == targetNode {
 			target = &pods.Items[i]
 			break
 		}
@@ -87,14 +88,20 @@ func (f *Framework) RestartCSIDaemonSetPod() error {
 	}
 
 	grace := int64(0)
-	Logf("deleting CSI pod %s to trigger restart", target.Name)
+	Logf("deleting CSI pod %s on node %s to trigger restart", target.Name, targetNode)
 	if err := f.KubeClient.CoreV1().Pods(DefaultCSINamespace).Delete(
 		ctx, target.Name, metav1.DeleteOptions{GracePeriodSeconds: &grace}); err != nil {
 		return err
 	}
+	
+	// 1. Wait for the deleted pod to vanish from etcd
+	_ = wait.PollImmediateWithContext(ctx, 1*time.Second, 30*time.Second, func(ctx context.Context) (bool, error) {
+		_, err := f.KubeClient.CoreV1().Pods(DefaultCSINamespace).Get(ctx, target.Name, metav1.GetOptions{})
+		return apierrors.IsNotFound(err), nil
+	})
 
 	// Wait for the replacement pod to become Running.
-	return wait.PollImmediateWithContext(ctx, PollInterval, 2*time.Minute,
+	return wait.PollImmediateWithContext(ctx, 2*time.Second, 2*time.Minute,
 		func(ctx context.Context) (bool, error) {
 			pods, err := f.KubeClient.CoreV1().Pods(DefaultCSINamespace).List(ctx, metav1.ListOptions{
 				LabelSelector: "app=" + CSIDaemonSetName,
@@ -103,8 +110,7 @@ func (f *Framework) RestartCSIDaemonSetPod() error {
 				return false, nil
 			}
 			for _, p := range pods.Items {
-				if (f.NodeName == "" || p.Spec.NodeName == f.NodeName) &&
-					p.Name != target.Name &&
+				if (p.Spec.NodeName == targetNode) && p.Name != target.Name &&
 					p.Status.Phase == corev1.PodRunning {
 					Logf("replacement CSI pod %s is Running", p.Name)
 					return true, nil

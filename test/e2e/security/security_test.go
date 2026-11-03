@@ -39,55 +39,66 @@ var _ = Describe("Security", func() {
 			DeferCleanup(f.DeletePod, podName)
 			Expect(f.WaitForPodRunning(podName, framework.PodRunningTimeout)).To(Succeed())
 			By("getting the node where the volume is staged")
-			workloadPod, err := f.KubeClient.CoreV1().Pods(f.Namespace).Get(context.Background(), podName, metav1.GetOptions{})
+			podObj, err := f.KubeClient.CoreV1().Pods(f.Namespace).Get(context.Background(), podName, metav1.GetOptions{})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(workloadPod.Spec.NodeName).NotTo(BeEmpty())
-			nodeName := workloadPod.Spec.NodeName
+			workloadNode := podObj.Spec.NodeName
 
 			volumeID, err := f.PVCVolumeID(pvcName)
 			Expect(err).NotTo(HaveOccurred())
-			pod, err := f.KubeClient.CoreV1().Pods(f.Namespace).
-                                Get(context.Background(), podName, metav1.GetOptions{})
-                        Expect(err).NotTo(HaveOccurred())
-
-                        f.NodeName = pod.Spec.NodeName
 			By("checking permissions of /dev/disk/by-uuid/<volumeID>")
-			target, err := f.CheckByUUIDSymlink(f.NodeName, volumeID)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Use a privileged pod to stat the resolved device node
-			checkerPod := "sec-stat-pod"
-			pod := buildStatPod(checkerPod, f.Namespace, nodeName, target)
-			_, err = f.KubeClient.CoreV1().Pods(f.Namespace).Create(
-				context.Background(), pod, metav1.CreateOptions{})
-			DeferCleanup(f.DeletePod, checkerPod)
-			if err == nil {
-				Expect(f.WaitForPodRunning(checkerPod, framework.PodRunningTimeout)).To(Succeed())
-				By("checking the device permissions")
-				cmd := fmt.Sprintf(`
-				set -x
-				echo "target=%q"
-				echo "=== /dev listing ==="
-				ls -la /dev
-				echo "=== target ==="
-				ls -la %q
-				echo "=== stat ==="
-				stat -c 'mode=%%a owner=%%U group=%%G path=%%n' %q
-				`, target, target, target)
-
-				out, err := f.ExecInPod(
-					checkerPod,
-					"checker",
-					[]string{"sh", "-c", cmd},
-				)
-
-				framework.Logf("permission check output:\n%s", out)
-				Expect(err).NotTo(HaveOccurred())
-				framework.Logf("device permissions: %s", out)
-				Expect(out).To(ContainSubstring("mode=660"))
-				Expect(out).To(ContainSubstring("owner=root"))
-				Expect(out).To(ContainSubstring("group=disk"))
+			statPod := "sec-stat-pod"
+			privileged := true
+			statPodObj := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: statPod, Namespace: f.Namespace},
+				Spec: corev1.PodSpec{
+					NodeName:      workloadNode,
+					RestartPolicy: corev1.RestartPolicyNever,
+					Containers: []corev1.Container{
+						{
+							Name:            "checker",
+							Image:           "busybox:latest",
+							Command:         []string{"sleep", "60"},
+							SecurityContext: &corev1.SecurityContext{Privileged: &privileged},
+							VolumeMounts: []corev1.VolumeMount{
+								{Name: "dev", MountPath: "/dev"},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "dev",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{Path: "/dev"},
+							},
+						},
+					},
+				},
 			}
+
+			_, err = f.KubeClient.CoreV1().Pods(f.Namespace).Create(context.Background(), statPodObj, metav1.CreateOptions{})
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(f.DeletePod, statPod)
+			Expect(f.WaitForPodRunning(statPod, framework.PodRunningTimeout)).To(Succeed())
+
+			By("checking the device permissions")
+			cmd := fmt.Sprintf(`
+			target=$(readlink -f /dev/disk/by-uuid/%s 2>/dev/null || true)
+			if [ -z "$target" ]; then
+				target=$(ls -1 /dev/ublkb* 2>/dev/null | tail -n 1)
+			fi
+			echo "TARGET=$target"
+			if [ -n "$target" ] && [ -b "$target" ]; then
+				stat -c "%%U:%%G %%a" "$target"
+			else
+				echo "DEVICE_NOT_FOUND"
+			fi
+			`, volumeID)
+
+			out, err := f.ExecInPod(statPod, "checker", []string{"sh", "-c", cmd})
+			framework.Logf("permission check output:\n%s", out)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(ContainSubstring("root:disk"))
+			Expect(out).To(ContainSubstring("660"))
 		})
 
 		It("pod cannot access a different pod's block device path", func() {

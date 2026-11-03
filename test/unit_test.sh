@@ -145,7 +145,7 @@ switch_storageclass "$EXT4_SC"
 
 run_test 9 "Rapid pod scheduling"                        "concurrency" "Rapid pod scheduling"
 run_test 10 "Filesystem ext4 validation"                  "filesystem"  "ext4 validation"
-run_test 11 "Lifecycle: Filesystem volume mode (ext4)"     "lifecycle"   "Filesystem volume mode"
+run_test 11 "Lifecycle: Filesystem volume mode"     "lifecycle"   "creates, binds, mounts and deletes a ext4 filesystem PVC"
 run_integrity_test 12 "fio checksum verification" "integrity" "writes with sha512 checksums and reads back without errors \(filesystem PVC\)"
 run_integrity_test 13 "Node: CSI plugin restart handling"  "node"  "CSI plugin restart handling"
 
@@ -154,7 +154,7 @@ echo "== switching StorageClass for xfs tests =="
 switch_storageclass "$XFS_SC"
 
 run_test 14 "Filesystem xfs validation"                   "filesystem"  "xfs validation"
-run_test 15 "Lifecycle: Filesystem volume mode (xfs)"      "lifecycle"   "Filesystem volume mode"
+run_test 15 "Lifecycle: Filesystem volume mode"      "lifecycle"   "creates, binds, mounts and deletes a xfs filesystem PVC"
 run_test 16 "Lifecycle: Idempotency"                     "lifecycle"   "Idempotency"
 ###############################################################################
 # Summary

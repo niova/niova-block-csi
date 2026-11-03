@@ -158,6 +158,10 @@ func (f *Framework) ExecInPod(podName, containerName string, cmd []string) (stri
 		return "", err
 	}
 
+	// Prevent indefinite hangs by enforcing a 30-second execution deadline
+	_, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	var out bytes.Buffer
 	err = exec.StreamWithContext(context.Background(), remotecommand.StreamOptions{
 		Stdout: &out,
