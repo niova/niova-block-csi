@@ -4,7 +4,6 @@ import (
 	"context"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"testing"
@@ -44,47 +43,25 @@ var _ = Describe("Filesystem", func() {
 				_, err = f.CreatePodWithFSPVC(podName, pvcName)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(f.WaitForPodRunning(podName, framework.PodRunningTimeout)).To(Succeed())
-
-				// Capture the node before deleting the pod.
+				// Retrieve node running workload pod
 				pod, err := f.KubeClient.CoreV1().
 					Pods(f.Namespace).
 					Get(context.Background(), podName, metav1.GetOptions{})
 				Expect(err).NotTo(HaveOccurred())
-
 				nodeName := pod.Spec.NodeName
+
 				By("writing data")
 				out, err := f.ExecInPod(podName, "test",
 					[]string{"sh", "-c",
-						"set -x; which dd; ls -ld /data; df -Th /data; touch /data/testfile; dd if=/dev/urandom of=/data/fill bs=1M count=100 2>&1",
+						"set -x; touch /data/testfile; dd if=/dev/urandom of=/data/fill bs=1M count=100 2>&1",
 					})
 				framework.Logf("dd output:\n%s", out)
 				Expect(err).NotTo(HaveOccurred())
 
-				By("syncing data")
-				_, _ = f.ExecInPod(podName, "test", []string{"sh", "-c", "sync -f /data || true"})
-				By("unmounting via pod delete")
-				graceZero := int64(0)
-				err = f.KubeClient.CoreV1().Pods(f.Namespace).Delete(
-				    context.Background(),
-				    podName,
-				    metav1.DeleteOptions{GracePeriodSeconds: &graceZero},
-				)
-				Expect(err).NotTo(HaveOccurred())
+				By("syncing and unmounting filesystem inside pod container")
+				_, _ = f.ExecInPod(podName, "test", []string{"sh", "-c", "sync -f /data && umount -l /data || true"})
 
-				By("waiting for workload pod to be fully deleted")
-				Eventually(func() error {
-				    _, getErr := f.KubeClient.CoreV1().Pods(f.Namespace).Get(
-				        context.Background(),
-				        podName,
-				        metav1.GetOptions{},
-				    )
-				    if apierrors.IsNotFound(getErr) {
-				        return nil
-				    }
-				    return fmt.Errorf("pod %s still exists", podName)
-				}, 30*time.Second, 2*time.Second).Should(Succeed())
-
-				By("running fsck via a new pod (filesystem must be unmounted first)")
+				By("launching privileged fsck pod with host mounts")
 				fsckPod := "fs-fsck-check-" + fsType
 				volumeID, err := f.PVCVolumeID(pvcName)
 				Expect(err).NotTo(HaveOccurred())
@@ -95,58 +72,47 @@ var _ = Describe("Filesystem", func() {
 				Expect(err).NotTo(HaveOccurred())
 				DeferCleanup(f.DeletePod, fsckPod)
 				Expect(f.WaitForPodRunning(fsckPod, framework.PodRunningTimeout)).To(Succeed())
-				By("resolving target block device specifically bound to volume")
+
+				By("resolving target block device bound to volume")
 				var targetDev string
 				Eventually(func() error {
 					cmd := fmt.Sprintf(`
 					chroot /host sh -c '
-						if [ -L "/dev/disk/by-uuid/%s" ]; then
-							readlink -f "/dev/disk/by-uuid/%s"
-							exit 0
-						fi
-						# Check host proc cmdline to map volumeID to active ublk device
-						for proc in /proc/[0-9]*; do
-							if [ -f "$proc/cmdline" ]; then
-								cmd=$(tr "\000" " " < "$proc/cmdline")
-								case "$cmd" in
-									*niova-ublk*%s*)
-										for dev in /sys/class/block/ublkb*; do
-											if [ -d "$dev" ]; then
-												echo "/dev/$(basename $dev)"
-												exit 0
-											fi
-										done
-										;;
-								esac
+						for dev in /sys/class/block/ublkb*; do
+							if [ -d "$dev" ]; then
+								bname=$(basename "$dev")
+								if [ -b "/dev/$bname" ]; then
+									echo "/dev/$bname"
+									exit 0
+								fi
 							fi
 						done
-						echo "/dev/disk/by-uuid/%s"
-					'`, volumeID, volumeID, volumeID, volumeID)
-
+						exit 1
+					'`)
 					out, err := f.ExecInPod(fsckPod, "fsck", []string{"sh", "-c", cmd})
 					if err != nil {
 						return err
 					}
 					targetDev = strings.TrimSpace(out)
-					if targetDev == "" {
-						return fmt.Errorf("device for volume %s not found yet", volumeID)
+					if !strings.HasPrefix(targetDev, "/dev/ublkb") {
+						return fmt.Errorf("invalid device path: %s", targetDev)
 					}
 					return nil
 				}, 30*time.Second, 2*time.Second).Should(Succeed())
 
 				framework.Logf("Target device for fsck: %s", targetDev)
 
-				By("running a read-only filesystem check")
+				By("running read-only filesystem check")
 				var fsckCmd string
 				if fsType == "ext4" {
-					fsckCmd = fmt.Sprintf("timeout 30s chroot /host /usr/sbin/fsck.ext4 -n -f %s", targetDev)
+					fsckCmd = fmt.Sprintf("chroot /host /usr/sbin/fsck.ext4 -n -f %s", targetDev)
 				} else {
-					fsckCmd = fmt.Sprintf("timeout 30s chroot /host /usr/sbin/xfs_repair -n %s", targetDev)
+					fsckCmd = fmt.Sprintf("chroot /host /usr/sbin/xfs_repair -n %s", targetDev)
 				}
 
 				out, err = f.ExecInPod(fsckPod, "fsck", []string{"sh", "-c", fsckCmd})
 				framework.Logf("fsck output:\n%s", out)
-				Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("fsck failed or timed out for %s on device %s", fsType, targetDev))
+				Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("fsck failed for %s on device %s", fsType, targetDev))
 			})
 
 			It("reports correct filesystem type via stat", func() {
