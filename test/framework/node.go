@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 	"time"
-
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -55,13 +54,45 @@ func (f *Framework) CheckByUUIDSymlink(nodeName, volumeID string) (string, error
 	if err := f.WaitForPodRunning(podName, 60*time.Second); err != nil {
 		return "", fmt.Errorf("checker pod not running: %v", err)
 	}
-	
-	cmd := fmt.Sprintf("readlink /dev/disk/by-uuid/%s || readlink -f /dev/disk/by-uuid/%s", volumeID, volumeID)
-	out, err := f.ExecInPod(podName, "checker", []string{"sh", "-c", cmd})
-	if err != nil {
-		return "", fmt.Errorf("by-uuid symlink not found for %s: %v", volumeID, err)
+	var target string
+	var lastErr error
+
+	// Poll until the udev symlink is created and resolves to an ublkb device
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		// Force udev to process any pending ublk events in /dev
+		udevCmd := "udevadm trigger --action=change /dev/ublkb* 2>/dev/null; udevadm settle 2>/dev/null || true"
+		_, _ = f.ExecInPod(podName, "checker", []string{"sh", "-c", udevCmd})
+
+		cmd := fmt.Sprintf(`
+		TARGET="/dev/disk/by-uuid/%s"
+		if [ -L "$TARGET" ] || [ -e "$TARGET" ]; then
+			readlink -f "$TARGET"
+			exit 0
+		fi
+		echo "Symlink $TARGET does not exist yet" >&2
+		exit 1
+		`, volumeID)
+
+		out, execErr := f.ExecInPod(podName, "checker", []string{"sh", "-c", cmd})
+		if execErr != nil {
+			lastErr = fmt.Errorf("symlink /dev/disk/by-uuid/%s not found: %v (out: %s)", volumeID, execErr, strings.TrimSpace(out))
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		resolved := strings.TrimSpace(out)
+		if !strings.Contains(resolved, "ublkb") {
+			lastErr = fmt.Errorf("symlink /dev/disk/by-uuid/%s resolved to '%s', expected 'ublkb'", volumeID, resolved)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		target = resolved
+		return target, nil
 	}
-	return strings.TrimSpace(out), nil
+
+	return "", fmt.Errorf("timeout waiting for udev symlink: %v", lastErr)
 }
 
 // RestartCSIDaemonSetPod deletes the CSI node pod on f.NodeName, triggering a

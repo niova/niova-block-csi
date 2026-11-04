@@ -43,17 +43,18 @@ var _ = Describe("Filesystem", func() {
 				_, err = f.CreatePodWithFSPVC(podName, pvcName)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(f.WaitForPodRunning(podName, framework.PodRunningTimeout)).To(Succeed())
-				// Retrieve node running workload pod
-				pod, err := f.KubeClient.CoreV1().
-					Pods(f.Namespace).
-					Get(context.Background(), podName, metav1.GetOptions{})
-				Expect(err).NotTo(HaveOccurred())
-				nodeName := pod.Spec.NodeName
-
+				By("identifying active ublk device from mounted container")
+			        devOut, err := f.ExecInPod(podName, "test", []string{
+			            "sh", "-c", "df /data | awk 'NR==2 {print $1}'",
+			        })
+			        Expect(err).NotTo(HaveOccurred())
+			        targetDev := strings.TrimSpace(devOut)
+			        framework.Logf("Active block device for %s: %s", fsType, targetDev)
+			        Expect(targetDev).To(HavePrefix("/dev/ublkb"), "device must be an active ublk block node")
 				By("writing data")
 				out, err := f.ExecInPod(podName, "test",
 					[]string{"sh", "-c",
-						"set -x; touch /data/testfile; dd if=/dev/urandom of=/data/fill bs=1M count=100 2>&1",
+						"set -x; touch /data/testfile; dd if=/dev/urandom of=/data/fill bs=1M count=100 conv=fsync",
 					})
 				framework.Logf("dd output:\n%s", out)
 				Expect(err).NotTo(HaveOccurred())
@@ -66,48 +67,23 @@ var _ = Describe("Filesystem", func() {
 				volumeID, err := f.PVCVolumeID(pvcName)
 				Expect(err).NotTo(HaveOccurred())
 				privileged := true
+				pod, err := f.KubeClient.CoreV1().
+                                        Pods(f.Namespace).
+                                        Get(context.Background(), podName, metav1.GetOptions{})
+                                Expect(err).NotTo(HaveOccurred())
+                                nodeName := pod.Spec.NodeName
 				fsckPodObj := buildFsckPod(fsckPod, f.Namespace, volumeID, nodeName, fsType, &privileged)
 
 				_, err = f.KubeClient.CoreV1().Pods(f.Namespace).Create(context.Background(), fsckPodObj, metav1.CreateOptions{})
 				Expect(err).NotTo(HaveOccurred())
 				DeferCleanup(f.DeletePod, fsckPod)
 				Expect(f.WaitForPodRunning(fsckPod, framework.PodRunningTimeout)).To(Succeed())
-
-				By("resolving target block device bound to volume")
-				var targetDev string
-				Eventually(func() error {
-					cmd := fmt.Sprintf(`
-					chroot /host sh -c '
-						for dev in /sys/class/block/ublkb*; do
-							if [ -d "$dev" ]; then
-								bname=$(basename "$dev")
-								if [ -b "/dev/$bname" ]; then
-									echo "/dev/$bname"
-									exit 0
-								fi
-							fi
-						done
-						exit 1
-					'`)
-					out, err := f.ExecInPod(fsckPod, "fsck", []string{"sh", "-c", cmd})
-					if err != nil {
-						return err
-					}
-					targetDev = strings.TrimSpace(out)
-					if !strings.HasPrefix(targetDev, "/dev/ublkb") {
-						return fmt.Errorf("invalid device path: %s", targetDev)
-					}
-					return nil
-				}, 30*time.Second, 2*time.Second).Should(Succeed())
-
-				framework.Logf("Target device for fsck: %s", targetDev)
-
 				By("running read-only filesystem check")
 				var fsckCmd string
 				if fsType == "ext4" {
-					fsckCmd = fmt.Sprintf("chroot /host /usr/sbin/fsck.ext4 -n -f %s", targetDev)
+				    fsckCmd = fmt.Sprintf("chroot /host /usr/sbin/fsck.ext4 -n -f %s", targetDev)
 				} else {
-					fsckCmd = fmt.Sprintf("chroot /host /usr/sbin/xfs_repair -n %s", targetDev)
+				    fsckCmd = fmt.Sprintf("chroot /host /usr/sbin/xfs_repair -n %s", targetDev)
 				}
 
 				out, err = f.ExecInPod(fsckPod, "fsck", []string{"sh", "-c", fsckCmd})
