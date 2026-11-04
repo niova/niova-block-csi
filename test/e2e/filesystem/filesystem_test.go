@@ -43,7 +43,7 @@ var _ = Describe("Filesystem", func() {
 				_, err = f.CreatePodWithFSPVC(podName, pvcName)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(f.WaitForPodRunning(podName, framework.PodRunningTimeout)).To(Succeed())
-				time.Sleep(20* time.Second)
+				time.Sleep(10* time.Second)
 				By("identifying active ublk device from mounted container")
 				var targetDev string
 			        Eventually(func() string {
@@ -160,7 +160,7 @@ var _ = Describe("Filesystem", func() {
 
 				By("verifying the checksum")
 				time.Sleep(10 * time.Second)
-				_, err := f.ExecInPod(podName, "test",
+				_, err = f.ExecInPod(podName, "test",
 					[]string{"sh", "-c", "cd /data && sha256sum -c checkfile.sha256 2>&1"})
 			})
 		})

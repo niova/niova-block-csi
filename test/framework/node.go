@@ -210,7 +210,7 @@ func (f *Framework) KillUblkProcess(nodeName, volumeID string) error {
 	if err := f.WaitForPodRunning(podName, 60*time.Second); err != nil {
 		return err
 	}
-
+	time.Sleep(10 * time.Second)
 	// First show all niova-ublk processes visible from the host PID namespace.
 	out, err := f.ExecInPod(
 		podName,
