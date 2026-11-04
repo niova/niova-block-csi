@@ -139,7 +139,7 @@ var _ = Describe("Node-Level", func() {
 
 			By("restarting the CSI DaemonSet pod")
 			Expect(f.RestartCSIDaemonSetPod(workloadNode)).To(Succeed())
-
+			time.Sleep(10* time.Second)
 			By("verifying the workload pod and data are unaffected")
 			out, err = f.ExecInPod(podName, "test",
 				[]string{"cat", "/data/marker"})
