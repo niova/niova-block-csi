@@ -99,6 +99,7 @@ var _ = Describe("Data Integrity", func() {
 
 			f.NodeName = pod.Spec.NodeName
 			GinkgoWriter.Printf("integrity pod is running on node %s\n", f.NodeName)
+			time.Sleep(10* time.Second)
 			By("killing niova-ublk to simulate a crash")
 			volumeID, err := f.PVCVolumeID(pvcName)
 			Expect(err).NotTo(HaveOccurred())
