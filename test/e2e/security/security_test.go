@@ -81,6 +81,7 @@ var _ = Describe("Security", func() {
 			Expect(f.WaitForPodRunning(statPod, framework.PodRunningTimeout)).To(Succeed())
 
 			By("checking the device permissions")
+			time.Sleep(30 * time.Second)
 			cmd := fmt.Sprintf(`
 			target=$(readlink -f /dev/disk/by-uuid/%s 2>/dev/null || true)
 			if [ -z "$target" ]; then

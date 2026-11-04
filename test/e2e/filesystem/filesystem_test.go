@@ -59,25 +59,39 @@ var _ = Describe("Filesystem", func() {
 				framework.Logf("dd output:\n%s", out)
 				Expect(err).NotTo(HaveOccurred())
 
-				By("syncing and unmounting filesystem inside pod container")
-				_, _ = f.ExecInPod(podName, "test", []string{"sh", "-c", "sync -f /data && umount -l /data || true"})
+				By("retrieving target node name")
+				pod, err := f.KubeClient.CoreV1().
+					Pods(f.Namespace).
+					Get(context.Background(), podName, metav1.GetOptions{})
+				Expect(err).NotTo(HaveOccurred())
+				nodeName := pod.Spec.NodeName
 
 				By("launching privileged fsck pod with host mounts")
 				fsckPod := "fs-fsck-check-" + fsType
 				volumeID, err := f.PVCVolumeID(pvcName)
 				Expect(err).NotTo(HaveOccurred())
 				privileged := true
-				pod, err := f.KubeClient.CoreV1().
-                                        Pods(f.Namespace).
-                                        Get(context.Background(), podName, metav1.GetOptions{})
-                                Expect(err).NotTo(HaveOccurred())
-                                nodeName := pod.Spec.NodeName
 				fsckPodObj := buildFsckPod(fsckPod, f.Namespace, volumeID, nodeName, fsType, &privileged)
 
 				_, err = f.KubeClient.CoreV1().Pods(f.Namespace).Create(context.Background(), fsckPodObj, metav1.CreateOptions{})
 				Expect(err).NotTo(HaveOccurred())
 				DeferCleanup(f.DeletePod, fsckPod)
 				Expect(f.WaitForPodRunning(fsckPod, framework.PodRunningTimeout)).To(Succeed())
+				By("flushing filesystem caches and unmounting across host mount namespace")
+				unmountHostCmd := fmt.Sprintf(`
+				chroot /host sh -c '
+					sync
+					# Unmount all active host bind-mounts pointing to target device
+					for mnt in $(grep "%s" /proc/mounts | awk "{print \$2}"); do
+						umount -f "$mnt" 2>/dev/null || umount -l "$mnt" 2>/dev/null || true
+					done
+					blockdev --flushbufs %s 2>/dev/null || true
+					udevadm settle 2>/dev/null || true
+				'`, targetDev, targetDev)
+				_, _ = f.ExecInPod(fsckPod, "fsck", []string{"sh", "-c", unmountHostCmd})
+
+				// Explicit stabilization delay to allow asynchronous ublk background I/O workers to finish writing metadata
+				time.Sleep(30* time.Second)
 				By("running read-only filesystem check")
 				var fsckCmd string
 				if fsType == "ext4" {
@@ -106,7 +120,7 @@ var _ = Describe("Filesystem", func() {
 				DeferCleanup(f.DeletePod, podName)
 				Expect(f.WaitForPodRunning(podName, framework.PodRunningTimeout)).To(Succeed())
 				By("waiting before running fsck")
-				time.Sleep(10 * time.Second)
+				time.Sleep(20 * time.Second)
 				By("checking filesystem type reported by stat -f")
 				out, err := f.ExecInPod(podName, "test",
 					[]string{"stat", "-f", "-c", "%T", "/data"})
@@ -116,7 +130,6 @@ var _ = Describe("Filesystem", func() {
 				if fsType == "xfs" {
 					Expect(out).To(ContainSubstring("xfs"))
 				}
-				// ext4 is reported as ext2/ext3 by stat; just verify mount succeeded
 			})
 
 			It("survives a write-read round trip with dd", func() {
@@ -142,6 +155,7 @@ var _ = Describe("Filesystem", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				By("verifying the checksum")
+				time.Sleep(10 * time.Second)
 				out, err := f.ExecInPod(podName, "test",
 					[]string{"sh", "-c", "cd /data && sha256sum -c checkfile.sha256 2>&1"})
 				framework.Logf("checksum output:\n%s", out)
