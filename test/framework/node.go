@@ -229,33 +229,22 @@ func (f *Framework) KillUblkProcess(nodeName, volumeID string) error {
 	}
 	findCmd := fmt.Sprintf(`
 	for proc in /host/proc/[0-9]*; do
-	    if [ -f "$proc/cmdline" ]; then
-	        cmd=$(tr '\000' ' ' < "$proc/cmdline")
-	        case "$cmd" in
-		    *sh*|*bash*|*grep*|*ps*)
-					continue
-					;;
-	            *niova-ublk*%s*)
-	                echo "${proc#/host/proc/}"
-	                exit 0
-	                ;;
-	        esac
-	    fi
+		pid=${p#/proc/}
+    		[ -r "$p/cmdline" ] || continue
+    		argv0=$(tr '\0' '\n' < "$p/cmdline" | head -n1)
+    		case "${argv	0##*/}" in
+        		niova-ublk) ;;
+        		*) continue ;;
+    		esac
+    		if tr '\0' ' ' < "$p/cmdline" | grep -qF -- " -v %s "; then
+        		echo "$pid"
+        		exit 0
+    		fi
 	done
-
-	echo "No matching niova-ublk process found"
-	echo "Host processes:"
-	for proc in /host/proc/[0-9]*; do
-	    if [ -f "$proc/cmdline" ]; then
-	        cmd=$(tr '\000' ' ' < "$proc/cmdline")
-	        case "$cmd" in
-	            *niova-ublk*)
-	                echo "${proc#/host/proc/}: $cmd"
-	                ;;
-	        esac
-	    fi
-	done
-
+	echo "No matching niova-ublk process found" >&2
+	for p in /proc/[0-9]*; do
+    		tr '\0' ' ' < "$p/cmdline" 2>/dev/null | grep -F niova-ublk | sed "s|^|${p#/proc/}: |" >&2
+	done	
 	exit 1
 	`, volumeID)
 
@@ -264,15 +253,9 @@ func (f *Framework) KillUblkProcess(nodeName, volumeID string) error {
 		"killer",
 		[]string{"sh", "-c", findCmd},
 	)
-
-	pid := strings.TrimSpace(out)
-	if err != nil || pid == "" || strings.Contains(pid, "No matching"){
-		return fmt.Errorf(
-			"niova-ublk process for volume %s not found: %v; pgrep output: %q",
-			volumeID,
-			err,
-			out,
-		)
+	pid := strings.TrimSpace(strings.Trim(out, "\x00"))
+	if err != nil || !regexp.MustCompile(`^[0-9]+$`).MatchString(pid) {
+    		return fmt.Errorf("niova-ublk for volume %s not found: err=%v out=%q", volumeID, err, out)
 	}
 
 	Logf("killing niova-ublk pid %s for volume %s on node %s", pid, volumeID, f.NodeName)
