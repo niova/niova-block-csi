@@ -1,0 +1,9 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: niova-csi-sc
+provisioner: csi.niova.com
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  ublkrecovery: "true"
