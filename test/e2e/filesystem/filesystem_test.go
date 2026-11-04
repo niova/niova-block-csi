@@ -2,14 +2,14 @@ package filesystem_test
 
 import (
 	"context"
+	"fmt"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"strings"
 	"testing"
 	"time"
-	"fmt"
-	"strings"
 
 	"github.com/niova-block-csi/test/framework"
 )
@@ -43,20 +43,20 @@ var _ = Describe("Filesystem", func() {
 				_, err = f.CreatePodWithFSPVC(podName, pvcName)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(f.WaitForPodRunning(podName, framework.PodRunningTimeout)).To(Succeed())
-				time.Sleep(10* time.Second)
+				time.Sleep(10 * time.Second)
 				By("identifying active ublk device from mounted container")
 				var targetDev string
-			        Eventually(func() string {
-			            out, err := f.ExecInPod(podName, "test", []string{
-			                "sh", "-c", `awk '$2=="/data"{print $1}' /proc/mounts`,
-			            })
-			            if err != nil {
-			                return ""
-			            }
-			            targetDev = strings.TrimSpace(out)
-			            return targetDev
-			        }, 60*time.Second, 2*time.Second).Should(HavePrefix("/dev/ublkb"),
-			            "device must be an active ublk block node")
+				Eventually(func() string {
+					out, err := f.ExecInPod(podName, "test", []string{
+						"sh", "-c", `awk '$2=="/data"{print $1}' /proc/mounts`,
+					})
+					if err != nil {
+						return ""
+					}
+					targetDev = strings.TrimSpace(out)
+					return targetDev
+				}, 60*time.Second, 2*time.Second).Should(HavePrefix("/dev/ublkb"),
+					"device must be an active ublk block node")
 				framework.Logf("Active block device for %s: %s", fsType, targetDev)
 				By("writing data")
 				out, err := f.ExecInPod(podName, "test",
@@ -84,31 +84,31 @@ var _ = Describe("Filesystem", func() {
 				Expect(err).NotTo(HaveOccurred())
 				DeferCleanup(f.DeletePod, fsckPod)
 				Expect(f.WaitForPodRunning(fsckPod, framework.PodRunningTimeout)).To(Succeed())
-				 By("freezing the filesystem so on-disk state is consistent")
-			        // exec args are passed directly, so no nested shell quoting is needed
-			        freeze := func(flag string) error {
-			            script := fmt.Sprintf(`
+				By("freezing the filesystem so on-disk state is consistent")
+				// exec args are passed directly, so no nested shell quoting is needed
+				freeze := func(flag string) error {
+					script := fmt.Sprintf(`
 			set -e
 			mnt=$(awk '$1=="%s"{print $2; exit}' /proc/mounts)
 			test -n "$mnt"
 			sync
 			fsfreeze %s "$mnt"`, targetDev, flag)
-			            o, err := f.ExecInPod(fsckPod, "fsck",
-			                []string{"chroot", "/host", "sh", "-c", script})
-			            framework.Logf("fsfreeze %s output:\n%s", flag, o)
-			            return err
-			        }
-			        Expect(freeze("-f")).To(Succeed())
-			        // must be unfrozen before pod/PVC cleanup, otherwise deletes hang
-			        DeferCleanup(func() { _ = freeze("-u") })
+					o, err := f.ExecInPod(fsckPod, "fsck",
+						[]string{"chroot", "/host", "sh", "-c", script})
+					framework.Logf("fsfreeze %s output:\n%s", flag, o)
+					return err
+				}
+				Expect(freeze("-f")).To(Succeed())
+				// must be unfrozen before pod/PVC cleanup, otherwise deletes hang
+				DeferCleanup(func() { _ = freeze("-u") })
 				// Explicit stabilization delay to allow asynchronous ublk background I/O workers to finish writing metadata
-				time.Sleep(30* time.Second)
+				time.Sleep(30 * time.Second)
 				By("running read-only filesystem check")
 				var fsckCmd string
 				if fsType == "ext4" {
-				    fsckCmd = "fsck.ext4 -n -f " + targetDev
+					fsckCmd = "fsck.ext4 -n -f " + targetDev
 				} else {
-				    fsckCmd = fmt.Sprintf("chroot /host /usr/sbin/xfs_repair -n %s", targetDev)
+					fsckCmd = fmt.Sprintf("chroot /host /usr/sbin/xfs_repair -n %s", targetDev)
 				}
 
 				_, err = f.ExecInPod(fsckPod, "fsck", []string{"sh", "-c", fsckCmd})

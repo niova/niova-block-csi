@@ -2,9 +2,9 @@ package node_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
-	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -45,12 +45,12 @@ var _ = Describe("Node-Level", func() {
 			By("retrieving the CSI volume handle")
 			volumeID, err := f.PVCVolumeID(pvcName)
 			Expect(err).NotTo(HaveOccurred())
-			
-			pod, err := f.KubeClient.CoreV1().Pods(f.Namespace).
-                                Get(context.Background(), podName, metav1.GetOptions{})
-                        Expect(err).NotTo(HaveOccurred())
 
-                        f.NodeName = pod.Spec.NodeName
+			pod, err := f.KubeClient.CoreV1().Pods(f.Namespace).
+				Get(context.Background(), podName, metav1.GetOptions{})
+			Expect(err).NotTo(HaveOccurred())
+
+			f.NodeName = pod.Spec.NodeName
 			By("verifying /dev/disk/by-uuid/<volumeID> exists on the node")
 			target, err := f.CheckByUUIDSymlink(f.NodeName, volumeID)
 			Expect(err).NotTo(HaveOccurred())
@@ -77,10 +77,10 @@ var _ = Describe("Node-Level", func() {
 			volumeID, err := f.PVCVolumeID(pvcName)
 			Expect(err).NotTo(HaveOccurred())
 			pod, err := f.KubeClient.CoreV1().Pods(f.Namespace).
-                                Get(context.Background(), podName, metav1.GetOptions{})
-                        Expect(err).NotTo(HaveOccurred())
+				Get(context.Background(), podName, metav1.GetOptions{})
+			Expect(err).NotTo(HaveOccurred())
 
-                        f.NodeName = pod.Spec.NodeName
+			f.NodeName = pod.Spec.NodeName
 			By("recording the initial symlink target")
 			target1, err := f.CheckByUUIDSymlink(f.NodeName, volumeID)
 			Expect(err).NotTo(HaveOccurred())
@@ -89,16 +89,16 @@ var _ = Describe("Node-Level", func() {
 			Expect(f.KillUblkProcess(f.NodeName, volumeID)).To(Succeed())
 
 			By("Starting the niova-ublk")
-                        Expect(f.StartUblkProcessOnPodNode(podName, volumeID)).To(Succeed())
+			Expect(f.StartUblkProcessOnPodNode(podName, volumeID)).To(Succeed())
 
 			By("waiting for the by-uuid symlink to reappear")
 			var target2 string
 			Eventually(func() error {
 				pod, err := f.KubeClient.CoreV1().Pods(f.Namespace).
-                	                Get(context.Background(), podName, metav1.GetOptions{})
-        	                Expect(err).NotTo(HaveOccurred())
-	
-	                        f.NodeName = pod.Spec.NodeName
+					Get(context.Background(), podName, metav1.GetOptions{})
+				Expect(err).NotTo(HaveOccurred())
+
+				f.NodeName = pod.Spec.NodeName
 				target2, err = f.CheckByUUIDSymlink(f.NodeName, volumeID)
 				return err
 			}, 60*time.Second, 2*time.Second).Should(Succeed())
@@ -139,7 +139,7 @@ var _ = Describe("Node-Level", func() {
 
 			By("restarting the CSI DaemonSet pod")
 			Expect(f.RestartCSIDaemonSetPod(workloadNode)).To(Succeed())
-			time.Sleep(10* time.Second)
+			time.Sleep(10 * time.Second)
 			By("verifying the workload pod and data are unaffected")
 			out, err = f.ExecInPod(podName, "test",
 				[]string{"cat", "/data/marker"})

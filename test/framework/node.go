@@ -3,13 +3,14 @@ package framework
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
-	"time"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"os"
+	"regexp"
+	"strings"
+	"time"
 )
 
 // CheckByUUIDSymlink verifies /dev/disk/by-uuid/<volumeID> exists on the node
@@ -124,7 +125,7 @@ func (f *Framework) RestartCSIDaemonSetPod(targetNode string) error {
 		ctx, target.Name, metav1.DeleteOptions{GracePeriodSeconds: &grace}); err != nil {
 		return err
 	}
-	
+
 	// 1. Wait for the deleted pod to vanish from etcd
 	_ = wait.PollImmediateWithContext(ctx, 1*time.Second, 30*time.Second, func(ctx context.Context) (bool, error) {
 		_, err := f.KubeClient.CoreV1().Pods(DefaultCSINamespace).Get(ctx, target.Name, metav1.GetOptions{})
@@ -255,7 +256,7 @@ func (f *Framework) KillUblkProcess(nodeName, volumeID string) error {
 	)
 	pid := strings.TrimSpace(strings.Trim(out, "\x00"))
 	if err != nil || !regexp.MustCompile(`^[0-9]+$`).MatchString(pid) {
-    		return fmt.Errorf("niova-ublk for volume %s not found: err=%v out=%q", volumeID, err, out)
+		return fmt.Errorf("niova-ublk for volume %s not found: err=%v out=%q", volumeID, err, out)
 	}
 
 	Logf("killing niova-ublk pid %s for volume %s on node %s", pid, volumeID, f.NodeName)

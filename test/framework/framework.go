@@ -11,8 +11,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -131,7 +131,7 @@ func (f *Framework) CleanupTestNamespace(nsName string) error {
 				// Patch PVC finalizers
 				_, _ = f.KubeClient.CoreV1().PersistentVolumeClaims(nsName).Patch(
 					ctx, pvc.Name, types.MergePatchType, patchPayload, metav1.PatchOptions{})
-				
+
 				// Delete PVC
 				_ = f.KubeClient.CoreV1().PersistentVolumeClaims(nsName).Delete(
 					ctx, pvc.Name, metav1.DeleteOptions{GracePeriodSeconds: &grace})
