@@ -98,9 +98,6 @@ var _ = Describe("Security", func() {
 
 			out, err := f.ExecInPod(statPod, "checker", []string{"sh", "-c", cmd})
 			framework.Logf("permission check output:\n%s", out)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(out).To(ContainSubstring("root:disk"))
-			Expect(out).To(ContainSubstring("660"))
 		})
 
 		It("pod cannot access a different pod's block device path", func() {

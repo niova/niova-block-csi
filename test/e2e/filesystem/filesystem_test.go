@@ -43,6 +43,7 @@ var _ = Describe("Filesystem", func() {
 				_, err = f.CreatePodWithFSPVC(podName, pvcName)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(f.WaitForPodRunning(podName, framework.PodRunningTimeout)).To(Succeed())
+				time.Sleep(20* time.Second)
 				By("identifying active ublk device from mounted container")
 			        devOut, err := f.ExecInPod(podName, "test", []string{
 			            "sh", "-c", "df /data | awk 'NR==2 {print $1}'",
