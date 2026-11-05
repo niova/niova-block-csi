@@ -229,7 +229,7 @@ func (f *Framework) KillUblkProcess(nodeName, volumeID string) error {
 		return fmt.Errorf("failed to inspect niova-ublk processes: %w", err)
 	}
 	findCmd := fmt.Sprintf(`
-	for proc in /host/proc/[0-9]*; do
+	for p in /proc/[0-9]*; do
 		pid=${p#/proc/}
 		cmd=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null) || continue
     		case "$cmd" in
