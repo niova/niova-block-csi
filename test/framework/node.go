@@ -231,20 +231,18 @@ func (f *Framework) KillUblkProcess(nodeName, volumeID string) error {
 	findCmd := fmt.Sprintf(`
 	for proc in /host/proc/[0-9]*; do
 		pid=${p#/proc/}
-    		[ -r "$p/cmdline" ] || continue
-    		argv0=$(tr '\0' '\n' < "$p/cmdline" | head -n1)
-    		case "${argv	0##*/}" in
-        		niova-ublk) ;;
+		cmd=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null) || continue
+    		case "$cmd" in
+        		niova-ublk\ *|*/niova-ublk\ *) ;;
         		*) continue ;;
     		esac
-    		if tr '\0' ' ' < "$p/cmdline" | grep -qF -- " -v %s "; then
-        		echo "$pid"
-        		exit 0
-    		fi
+    		case "$cmd" in
+        		*" -v %s "*) echo "$pid"; exit 0 ;;
+    		esac
 	done
 	echo "No matching niova-ublk process found" >&2
 	for p in /proc/[0-9]*; do
-    		tr '\0' ' ' < "$p/cmdline" 2>/dev/null | grep -F niova-ublk | sed "s|^|${p#/proc/}: |" >&2
+	    tr '\0' ' ' < "$p/cmdline" 2>/dev/null | grep -F niova-ublk | sed "s|^|${p#/proc/}: |" >&2
 	done	
 	exit 1
 	`, volumeID)
