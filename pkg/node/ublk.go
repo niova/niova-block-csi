@@ -74,6 +74,7 @@ func (um *UblkManager) CreateUblkDevice(volumeID, volumesize string, recovery, r
 		fmt.Sprintf("NIOVA_BLOCK_CP_AUTH_USERNAME=%s", os.Getenv(types.NiovaUserName)),
 		fmt.Sprintf("NIOVA_BLOCK_CP_AUTH_SECRET=%s", os.Getenv(types.NiovaUserSecret)),
 		fmt.Sprintf("NIOVA_BLOCK_UBLK_UNIFIED=%s", os.Getenv(types.NiovaUblkUnified)),
+		fmt.Sprintf("NIOVA_BLOCK_CP_AUTH_CLUSTER_UUID=%s", os.Getenv(types.NiovaTenantUuid)),
 		fmt.Sprintf("NIOVA_BLOCK_MDSVC_GET_CHUNKS_LIMIT=%s", os.Getenv(types.NiovaMdsvcChunkLimit)),
 	}
 
