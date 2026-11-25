@@ -105,6 +105,7 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	fd := p[types.FailureDomain]
 	entityId := p[types.EntityID]
 	pfsId := p[types.PfsID]
+	recovery := p[types.UblkRecovery]
 	klog.Infof("failuredomain provided is %s  and entityId provided is %s and  pfsId provided is %s", fd, entityId, pfsId)
 
 	// Allocate Vdev of required size
@@ -120,6 +121,9 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 		Volume: &csi.Volume{
 			VolumeId:      volumeID,
 			CapacityBytes: volumeSize,
+			VolumeContext: map[string]string{
+				types.UblkRecovery: recovery,
+			},
 		},
 	}, nil
 }

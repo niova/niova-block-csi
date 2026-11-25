@@ -50,7 +50,7 @@ func (um *UblkManager) getBinaryPath() {
 // /dev/disk/by-uuid/<volumeID> symlink created by 61-niova-ublk.rules, and
 // pid is the host-side niova-ublk process, kept only for observability
 // (stopping it again goes through stopUblkUnit(volumeID), not the pid).
-func (um *UblkManager) CreateUblkDevice(volumeID, volumesize string, readOnly bool) (string, int, error) {
+func (um *UblkManager) CreateUblkDevice(volumeID, volumesize string, recovery, readOnly bool) (string, int, error) {
 	klog.Infof("Creating ublk device for volume %s", volumeID)
 	// get niova binary path
 	um.getBinaryPath()
@@ -61,7 +61,9 @@ func (um *UblkManager) CreateUblkDevice(volumeID, volumesize string, readOnly bo
 		"-q", QUEUEDEPTH,
 		"-b", MAXBUFSIZE,
 		"-T",
-		"-r",
+	}
+	if recovery {
+		args = append(args, "-r")
 	}
 	if readOnly {
 		args = append(args, "-R")
@@ -73,6 +75,7 @@ func (um *UblkManager) CreateUblkDevice(volumeID, volumesize string, readOnly bo
 		fmt.Sprintf("NIOVA_BLOCK_CP_AUTH_USERNAME=%s", os.Getenv(types.NiovaUserName)),
 		fmt.Sprintf("NIOVA_BLOCK_CP_AUTH_SECRET=%s", os.Getenv(types.NiovaUserSecret)),
 		fmt.Sprintf("NIOVA_BLOCK_UBLK_UNIFIED=%s", os.Getenv(types.NiovaUblkUnified)),
+		fmt.Sprintf("NIOVA_BLOCK_CP_AUTH_CLUSTER_UUID=%s", os.Getenv(types.NiovaTenantUuid)),
 		fmt.Sprintf("NIOVA_BLOCK_MDSVC_GET_CHUNKS_LIMIT=%s", os.Getenv(types.NiovaMdsvcChunkLimit)),
 	}
 

@@ -1,0 +1,53 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: csi-block-sc
+provisioner: csi.niova.com
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  ublkrecovery: "true"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: block-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Block
+  storageClassName: csi-block-sc
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: block-test-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: block-test
+  template:
+    metadata:
+      labels:
+        app: block-test
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: io07
+      terminationGracePeriodSeconds: 2
+      containers:
+      - name: app
+        image: nicolaka/netshoot:latest
+        command:
+          - sh
+          - -c
+          - sleep infinity
+        volumeDevices:
+        - name: block
+          devicePath: /dev/new-niova-block
+      volumes:
+      - name: block
+        persistentVolumeClaim:
+          claimName: block-pvc
