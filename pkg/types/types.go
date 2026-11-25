@@ -1,6 +1,7 @@
 package types
 
 import (
+	"strings"
 	cpClient "github.com/00pauln00/niova-mdsvc/controlplane/ctlplanefuncs/client"
 	userClient "github.com/00pauln00/niova-mdsvc/controlplane/user/client"
 	"github.com/google/uuid"
@@ -58,5 +59,5 @@ type Node struct {
 // ground truth for which control-plane-known volumes actually have a live
 // backend running on this node.
 func UblkByUUIDPath(volumeID string) string {
-	return "/dev/disk/by-uuid/" + volumeID
+	return "/dev/disk/by-id/niova-vdev-" + strings.ReplaceAll(volumeID, "-", "")
 }
