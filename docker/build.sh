@@ -2,16 +2,17 @@
 set -e
 
 # Example usage:
-# ./build-images.sh /opt/niova/bin /local/shirisha/nb-bin paro1618/niova-csi v8 true/false
+# ./build-images.sh /opt/niova/bin /local/shirisha/nb-bin paro1618 v8 dockerhub-token true/false
 
 CSI_BIN_DIR="$1"
 NIOVA_BIN_DIR="$2"
-DOCKERHUB="$3"
+DOCKER_USER="$3"
 VERSION="$4"
-D_PUSH="$5"
+DOCKERHUB_TOKEN="$5"
+D_PUSH="$6"
 if [ -z "$CSI_BIN_DIR" ] || [ -z "$NIOVA_BIN_DIR" ] || \
-   [ -z "$DOCKERHUB" ] || [ -z "$VERSION" ]; then
-    echo "Usage: $0 <csi-bin-dir> <niova-bin-dir> <dockerhub> <version>"
+   [ -z "$DOCKER_USER" ] || [ -z "$VERSION" ]; then
+    echo "Usage: $0 <csi-bin-dir> <niova-bin-dir> <dockerhub-user> <version> <dockerhubtoken> <dockerpush-true/false>"
     exit 1
 fi
 
@@ -60,12 +61,14 @@ cp -R "$NIOVA_BIN_DIR"/sbin/* .build_context/usr/local/sbin/ 2>/dev/null || true
 cp -R "$NIOVA_BIN_DIR"/share/* .build_context/usr/local/share/ 2>/dev/null || true
 
 echo "Building Docker image for controller..."
-CONTROLLER_IMAGE="${DOCKERHUB}:controller-${VERSION}"
-NODE_IMAGE="${DOCKERHUB}:node-${VERSION}"
+CONTROLLER_IMAGE="${DOCKER_USER}/niova-csi:controller-${VERSION}"
+NODE_IMAGE="${DOCKER_USER}/niova-csi:node-${VERSION}"
 docker build -f Dockerfile --build-arg BINARY=controller -t "$CONTROLLER_IMAGE" .build_context
 echo "Building Docker image for node..."
 docker build -f Dockerfile --build-arg BINARY=node -t "$NODE_IMAGE" .build_context
 if [ "$D_PUSH" = "true" ]; then
+    echo "Logging in to Docker Hub as '$DOCKER_USER'..."
+    printf '%s\n' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKER_USER" --password-stdin
     docker push "$CONTROLLER_IMAGE"
     docker push "$NODE_IMAGE"
 else 
