@@ -18,7 +18,7 @@ spec:
       hostPID: true
       containers:
         - name: niova-csi
-          image: paro1618/niova-csi:node-v12
+          image: paro1618/niova-csi:node-latest
           securityContext:
             privileged: true
             capabilities:
@@ -28,7 +28,7 @@ spec:
             runAsUser: 0
             runAsGroup: 0
             allowPrivilegeEscalation: true
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
           args:
             - ulimit -l unlimited && exec /opt/niova/niova-block-csi-node -driver-name=csi.niova.com -version=0.1.0 -node-id=$(NODE_ID) -endpoint=unix:///csi/custom.sock -configpath=$(NIOVA_GOSSIP_PATH) -r $(NIOVA_GOSSIP_KEY)
