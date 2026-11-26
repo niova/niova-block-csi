@@ -160,16 +160,43 @@ func (cm *ConfigManager) RetryAuth(fn func() error) error {
 	return fmt.Errorf("operation failed after %d retries", types.MAX_RETRY)
 }
 
-func (cm *ConfigManager) AllocVdev(name string, requiredSize int64, filter, entityID, pfsId string) (string, error) {
+func (cm *ConfigManager) resolveRedundancyMode(cType string, ecSize int) (ctlplfl.RedundancyMode, error) {
+	switch cType {
+	case "rChunk":
+		return ctlplfl.RMReplica, nil
+	case "ecChunk":
+		switch ecSize {
+		case 32:
+			return ctlplfl.RMEC32K, nil
+		case 64:
+			return ctlplfl.RMEC64K, nil
+		case 128:
+			return ctlplfl.RMEC128K, nil
+		default:
+			return 0, fmt.Errorf("unsupported EC size %d for cType %q", ecSize, cType)
+		}
+	default:
+		return ctlplfl.RMReplica, nil
+	}
+}
+
+func (cm *ConfigManager) AllocVdev(name string, ecSize int, requiredSize int64, numReplica, parityBlks uint8, filter, entityID, pfsId, cType string) (string, error) {
 	cm.Mutex.RLock()
 	defer cm.Mutex.RUnlock()
+	redundancy, err := cm.resolveRedundancyMode(cType, ecSize)
+	if err != nil {
+		klog.Infof("unsupported chunk type and size: %v", err)
+		return "", err 
+	}
 	klog.Infof("Allocate vdev with failure domain: %s", entityID)
 	// TODO: NumReplica should be passed from PVC file.
 	Vdev := &ctlplfl.VdevReq{
 		Vdev: &ctlplfl.VdevConfig{
 			Name:       name,
 			Size:       requiredSize,
-			DataBlkCnt: 1,
+			Redundancy: redundancy,
+			DataBlkCnt: numReplica,
+			ParityBlkCnt: parityBlks,
 			PFSID:      pfsId,
 		},
 		Filter: ctlplfl.Filter{
@@ -177,9 +204,9 @@ func (cm *ConfigManager) AllocVdev(name string, requiredSize int64, filter, enti
 			Type: parseFDType(filter),
 		},
 	}
-	klog.Infof("Create vdev of size", Vdev.Vdev.Size)
+	klog.Infof("Create vdev of size %d", Vdev.Vdev.Size)
 	var resp *ctlplfl.ResponseXML
-	err := cm.RetryAuth(func() error {
+	err = cm.RetryAuth(func() error {
 		var err error
 		resp, err = cm.Controller.Cpclient.CreateVdev(Vdev)
 		return err

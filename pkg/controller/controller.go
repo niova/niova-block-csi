@@ -42,6 +42,30 @@ func NewControllerServer(configManager *config.ConfigManager) *ControllerServer 
 	}
 }
 
+func parseIntParam(params map[string]string, key string, defaultVal int) (int, error) {
+	raw, ok := params[key]
+	if !ok || raw == "" {
+		return defaultVal, nil
+	}
+	val, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s %q: %w", key, raw, err)
+	}
+	return val, nil
+}
+
+func parseUint8Param(params map[string]string, key string, defaultVal uint8) (uint8, error) {
+	raw, ok := params[key]
+	if !ok || raw == "" {
+		return defaultVal, nil
+	}
+	val, err := strconv.ParseUint(raw, 10, 8)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s %q: %w", key, raw, err)
+	}
+	return uint8(val), nil
+}
+
 func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
 	klog.Infof("CreateVolume: called with args %+v", req)
 
@@ -92,10 +116,28 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	entityId := p[types.EntityID]
 	pfsId := p[types.PfsID]
 	recovery := p[types.UblkRecovery]
+	cType := p[types.ChunkType]
+	ecSize, err := parseIntParam(p, types.EcSize, 0)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	numReplica, err := parseUint8Param(p, types.DataBlkCnt, 1)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if numReplica == 0 {
+		numReplica = 1
+	}
+
+	parityBlks, err := parseUint8Param(p, types.ParityBlkCnt, 0)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	klog.Infof("failuredomain provided is %s  and entityId provided is %s and  pfsId provided is %s", fd, entityId, pfsId)
 
 	// Allocate Vdev of required size
-	volumeID, err := cs.config.AllocVdev(volumeName, volumeSize, fd, entityId, pfsId)
+	volumeID, err := cs.config.AllocVdev(volumeName, ecSize, volumeSize, numReplica, parityBlks, fd, entityId, pfsId, cType)
 	if err != nil {
 		klog.Errorf("Failed to Allocate Vdev with error : %v", err)
 		return nil, status.Error(codes.ResourceExhausted, err.Error())

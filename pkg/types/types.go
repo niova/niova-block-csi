@@ -29,6 +29,10 @@ const (
 	EntityID      = "entityID"
 	PfsID         = "pfsId"
 	UblkRecovery  = "ublkrecovery"
+	EcSize        = "ecsize"
+	DataBlkCnt    = "datablkcnt"
+	ParityBlkCnt  = "parityblkcnt"
+	ChunkType     = "chunktype"
 	MAX_RETRY     = 2
 )
 
